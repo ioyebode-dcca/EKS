@@ -4,7 +4,7 @@ pipeline {
         skipStagesAfterUnstable()
     }
     stages {
-         stage('Clone repository') { 
+         stage('https://github.com/oyebode23/EKS') { 
             steps { 
                 script{
                 checkout scm
@@ -27,7 +27,7 @@ pipeline {
         stage('Push') {
             steps {
                 script{
-                        docker.withRegistry('<Your AWS ECR URL>', 'ecr:<Your ECR Zone>:<Your Jenkins Credentials>') {
+                        docker.withRegistry('https://150685619118.dkr.ecr.us-east-1.amazonaws.com/', 'ecr:us-east-1:aws-credentials') {
                     app.push("${env.BUILD_NUMBER}")
                     app.push("latest")
                     }
