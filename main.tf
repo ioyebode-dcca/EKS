@@ -25,6 +25,7 @@ resource "aws_iam_role" "eks-iam-role" {
   ]
 }
 EOF
+
 }
 
 resource "aws_iam_role_policy_attachment" "AmazonEKSClusterPolicy" {
@@ -63,7 +64,7 @@ resource "aws_iam_role" "workernodes" {
         }
       }
     ]
-    Version = "2012-10-17"
+    Version   = "2012-10-17"
   })
 }
 
@@ -88,9 +89,4 @@ resource "aws_iam_role_policy_attachment" "AmazonEC2ContainerRegistryReadOnly" {
 }
 
 resource "aws_eks_node_group" "worker-node-group" {
-  cluster_name    = aws_eks_cluster.devopsthehardway-eks.name
-  node_group_name = "devopsthehardway-workernodes"
-  node_role_arn   = aws_iam_role.workernodes.arn
-  subnet_ids      = [var.subnet_id_1, var.subnet_id_2]
-  instance_types  = ["t3.xlarge"]
-
+  cluster_name   = aws_eks_cluster.devop
