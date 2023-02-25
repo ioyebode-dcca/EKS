@@ -3,6 +3,7 @@ pipeline {
     environment {
         AWS_ACCESS_KEY_ID     = credentials('AWS_ACCESS_KEY_ID')
         AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY')
+    }
     options {
         skipStagesAfterUnstable()
     }
@@ -12,10 +13,10 @@ pipeline {
                 cleanWs()
             }
         }
-        stage('https://github.com/oyebode23/EKS') { 
+        stage('Clone Repository') { 
             steps { 
                 script{
-                checkout scm
+                    checkout scm
                 }
             }
         }
@@ -54,22 +55,21 @@ pipeline {
                 sh 'terraform show -no-color tfplan > tfplan.txt'
             }
         }
-        stage('check plan') {
+        stage('Check Plan') {
             steps {
-                input('Is terraform plan okay?')
+                input message: 'Is terraform plan okay?', ok: 'yes'
             }
         }
         stage ('Apply') {
           steps {
-          input('Do you want to Apply?')
-          sh "terraform apply -input=false tfplan"
+              input message: 'Do you want to Apply?', ok: 'yes'
+              sh 'terraform apply -input=false tfplan'
           }
         }
-        
-        stage('Build') { 
+        stage('Build Docker Image') { 
             steps { 
                 script{
-                 app = docker.build("underwater")
+                    app = docker.build("underwater")
                 }
             }
         }
@@ -78,12 +78,12 @@ pipeline {
                  echo 'Empty'
             }
         }
-        stage('Push') {
+        stage('Push Docker Image to Registry') {
             steps {
                 script{
-                        docker.withRegistry('https://150685619118.dkr.ecr.us-east-1.amazonaws.com/', 'ecr:us-east-1:aws-credentials') {
-                    app.push("${env.BUILD_NUMBER}")
-                    app.push("latest")
+                    docker.withRegistry('https://150685619118.dkr.ecr.us-east-1.amazonaws.com/', 'ecr:us-east-1:aws-credentials') {
+                        app.push("${env.BUILD_NUMBER}")
+                        app.push("latest")
                     }
                 }
             }
@@ -95,6 +95,5 @@ pipeline {
                  sh 'kubectl rollout restart deployment ecr-app-underwater'
             }
         }
-        
     }
 }
