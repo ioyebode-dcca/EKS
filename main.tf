@@ -90,3 +90,4 @@ resource "aws_iam_role_policy_attachment" "AmazonEC2ContainerRegistryReadOnly" {
 
 resource "aws_eks_node_group" "worker-node-group" {
   cluster_name   = aws_eks_cluster.devop
+}
