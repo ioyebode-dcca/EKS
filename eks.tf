@@ -33,7 +33,7 @@ resource "aws_elb" "kubernetes" {
 
 # Define Kubernetes as the cluster management tool
 module "kubernetes" {
-  source = "./terraform-aws-modules/kubernetes/aws"
+  source = "github.com/terraform-aws-modules/kubernetes/aws"
   
   # Pass in the necessary configuration parameters
   worker_instance_type = "t2.micro"
