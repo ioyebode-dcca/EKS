@@ -47,14 +47,14 @@ module "kubernetes" {
   source = "git::https://github.com/terraform-aws-modules/terraform-aws-eks.git?ref=v12.1.0"
   
   # Pass in the necessary configuration parameters
-  worker_instance_type = "t2.micro"
-  num_workers          = 3
-  cluster_name         = "my-kubernetes-cluster"
-  subnets              = aws_subnet.kubernetes.*.id
-  vpc_id               = aws_vpc.main.id
-  aws_region           = "us-west-2"
-  tags = {
-    Terraform = "true"
-    ELB       = aws_elb.kubernetes.id
-  }
+  //worker_instance_type = "t2.micro"
+  //num_workers          = 3
+  //cluster_name         = "my-kubernetes-cluster"
+  //subnets              = aws_subnet.kubernetes.*.id
+  //vpc_id               = aws_vpc.main.id
+  //aws_region           = "us-west-2"
+  //tags = {
+  //  Terraform = "true"
+  //  ELB       = aws_elb.kubernetes.id
+  //}
 }
