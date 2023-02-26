@@ -1,5 +1,5 @@
 provider "aws" {
-  region = "us-west-1" # Replace with your desired AWS region
+  region = "us-west-2" # Replace with your desired AWS region
 }
 
 resource "aws_vpc" "eks_vpc" {
@@ -74,11 +74,6 @@ module "eks" {
 
   vpc_id = aws_vpc.eks_vpc.id
 
-  tags = {
-    Terraform   = "true"
-    Environment = "dev"
-  }
-
   kubeconfig_aws_authenticator_additional_args = [
     "--region",
     "${var.region}",
@@ -104,11 +99,6 @@ module "eks" {
       }
     }
   ]
-
-  tags = {
-    Terraform   = "true"
-    Environment = "dev"
-  }
 }
 
 output "kubeconfig" {
