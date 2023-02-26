@@ -1,60 +1,116 @@
-# Define the AWS provider
 provider "aws" {
-  region = var.region
+  region = "us-west-1" # Replace with your desired AWS region
 }
 
-# Define the VPC for the cluster
-resource "aws_vpc" "main" {
-  cidr_block = "10.0.0.0/16"
+resource "aws_vpc" "eks_vpc" {
+  cidr_block = "10.0.0.0/16" # Replace with your desired VPC CIDR block
+
   tags = {
-    Name = "${var.cluster_name}-vpc"
+    Name = "eks-vpc"
   }
 }
 
-# Define the virtual machines for the cluster
-resource "aws_instance" "kubernetes_nodes" {
-  count         = var.num_workers
-  ami           = "ami-0c55b159cbfafe1f0"
-  instance_type = var.worker_instance_type
+resource "aws_subnet" "eks_subnet" {
+  count = 3 # Replace with the number of subnets you want to create
+
+  cidr_block = "10.0.${count.index}.0/24" # Replace with your desired subnet CIDR block
+
+  vpc_id = aws_vpc.eks_vpc.id
+
+  tags = {
+    Name = "eks-subnet-${count.index}"
+  }
 }
 
-# Define the networking components
-resource "aws_security_group" "kubernetes" {
-  name_prefix = "kubernetes-"
+resource "aws_security_group" "eks_sg" {
+  name_prefix = "eks-"
+
   ingress {
     from_port = 0
     to_port   = 65535
     protocol  = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [
+      "0.0.0.0/0"
+    ]
+  }
+
+  egress {
+    from_port = 0
+    to_port   = 65535
+    protocol  = "tcp"
+    cidr_blocks = [
+      "0.0.0.0/0"
+    ]
   }
 }
 
-resource "aws_subnet" "kubernetes" {
-  count = var.num_workers
-  cidr_block = "10.0.${count.index + 1}.0/24"
+data "aws_ami" "eks_worker" {
+  most_recent = true
+
+  filter {
+    name   = "name"
+    values = ["eks-worker-*"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+
+  owners = ["602401143452"] # The official AWS EKS AMI owner ID
 }
 
-resource "aws_elb" "kubernetes" {
-  name = "kubernetes"
-  subnets = aws_subnet.kubernetes.*.id
+module "eks" {
+  source  = "terraform-aws-modules/eks/aws"
+  version = "17.5.0"
+
+  cluster_name = "my-eks-cluster"
+
+  subnets = [
+    aws_subnet.eks_subnet[0].id,
+    aws_subnet.eks_subnet[1].id,
+    aws_subnet.eks_subnet[2].id,
+  ]
+
+  vpc_id = aws_vpc.eks_vpc.id
+
   tags = {
-    Name = "${var.cluster_name}-elb"
+    Terraform   = "true"
+    Environment = "dev"
+  }
+
+  kubeconfig_aws_authenticator_additional_args = [
+    "--region",
+    "${var.region}",
+  ]
+
+  worker_groups_launch_template = [
+    {
+      name                 = "my-eks-worker-group"
+      instance_type       = "t2.small"
+      asg_desired_capacity = 2
+      additional_security_group_ids = [
+        aws_security_group.eks_sg.id
+      ]
+      ami_id              = data.aws_ami.eks_worker.id
+      subnets             = [
+        aws_subnet.eks_subnet[0].id,
+        aws_subnet.eks_subnet[1].id,
+        aws_subnet.eks_subnet[2].id,
+      ]
+      tags = {
+        Terraform   = "true"
+        Environment = "dev"
+      }
+    }
+  ]
+
+  tags = {
+    Terraform   = "true"
+    Environment = "dev"
   }
 }
 
-# Define Kubernetes as the cluster management tool
-module "kubernetes" {
-  source = "git::https://github.com/terraform-aws-modules/terraform-aws-eks.git?ref=v12.1.0"
-  
-  # Pass in the necessary configuration parameters
-  worker_instance_type = var.worker_instance_type
-  num_workers          = var.num_workers
-  cluster_name         = var.cluster_name
-  subnets              = aws_subnet.kubernetes.*.id
-  vpc_id               = aws_vpc.main.id
-  aws_region           = var.region
-  tags = {
-    Terraform = "true"
-    ELB       = aws_elb.kubernetes.id
-  }
+output "kubeconfig" {
+  value = module.eks.kubeconfig
 }
