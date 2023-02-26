@@ -1,5 +1,5 @@
 provider "aws" {
-  region = "us-west-2" # Replace with your desired AWS region
+  region = "us-east-1" # Replace with your desired AWS region
 }
 
 resource "aws_vpc" "eks_vpc" {
@@ -65,6 +65,7 @@ module "eks" {
   version = "17.5.0"
 
   cluster_name = "my-eks-cluster"
+  cluster_version = "1.21" # Replace with the desired EKS version
 
   subnets = [
     aws_subnet.eks_subnet[0].id,
