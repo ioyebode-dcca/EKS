@@ -3,6 +3,14 @@ provider "aws" {
   region = "us-west-2"
 }
 
+# Define the VPC for the cluster
+resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+  tags = {
+    Name = "my-kubernetes-vpc"
+  }
+}
+
 # Define the virtual machines for the cluster
 resource "aws_instance" "kubernetes_nodes" {
   count         = 3
@@ -29,6 +37,9 @@ resource "aws_subnet" "kubernetes" {
 resource "aws_elb" "kubernetes" {
   name = "kubernetes"
   subnets = aws_subnet.kubernetes.*.id
+  tags = {
+    Name = "my-kubernetes-elb"
+  }
 }
 
 # Define Kubernetes as the cluster management tool
@@ -42,6 +53,8 @@ module "kubernetes" {
   subnets              = aws_subnet.kubernetes.*.id
   vpc_id               = aws_vpc.main.id
   aws_region           = "us-west-2"
-  tags                 = { Terraform = "true" }
-  elb_name             = aws_elb.kubernetes.name
+  tags = {
+    Terraform = "true"
+    ELB       = aws_elb.kubernetes.id
+  }
 }
