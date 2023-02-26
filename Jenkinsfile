@@ -51,6 +51,7 @@ pipeline {
             steps {
                 sh 'pwd'
                 sh 'terraform init'
+                sh 'terraform validate'
                 sh 'terraform plan -input=false -out tfplan'
                 sh 'terraform show -no-color tfplan > tfplan.txt'
             }
