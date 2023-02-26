@@ -44,30 +44,14 @@ resource "aws_security_group" "eks_sg" {
   }
 }
 
-data "aws_ami" "eks_worker" {
-  most_recent = true
-
-  filter {
-    name   = "name"
-    values = ["eks-worker-*"]
-  }
-
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
-  }
-
-  owners = ["602401143452"] # The official AWS EKS AMI owner ID
-}
-
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "17.5.0"
 
   cluster_name    = "my-eks-cluster"
   cluster_version = "1.21"
-  subnets         = ["subnet-06d634c2ec29a61ac", "subnet-0937cce09d1668c4b", "subnet-0bd163902e4165d24"] # Replace with the IDs of your VPC subnets
-  vpc_id          = "vpc-0bdba944130cdb522" # Replace with the ID of your VPC
+  subnets         = aws_subnet.eks_subnet.*.id # Use the IDs of the subnets created above
+  vpc_id          = aws_vpc.eks_vpc.id # Use the ID of the VPC created above
 
   tags = {
     Terraform   = "true"
@@ -79,8 +63,8 @@ module "eks" {
       name                 = "my-eks-worker-group"
       instance_type       = "t2.small"
       asg_desired_capacity = 2
-      additional_security_group_ids = ["sg-080799143e51cee36"] # Replace with the IDs of any additional security groups
-      subnets             = ["subnet-0bd163902e4165d24", "subnet-0937cce09d1668c4b", "subnet-06d634c2ec29a61ac"] # Replace with the IDs of your VPC subnets
+      additional_security_group_ids = [aws_security_group.eks_sg.id] # Use the ID of the security group created above
+      subnets             = aws_subnet.eks_subnet.*.id # Use the IDs of the subnets created above
       tags = {
         Terraform   = "true"
         Environment = "dev"
