@@ -64,9 +64,10 @@ module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "17.5.0"
 
-  cluster_name = "my-eks-cluster"
-  subnets      = ["subnet-06d634c2ec29a61ac", "subnet-0937cce09d1668c4b", "subnet-0bd163902e4165d24"] # Replace with the IDs of your VPC subnets
-  vpc_id       = "vpc-0bdba944130cdb522" # Replace with the ID of your VPC
+  cluster_name    = "my-eks-cluster"
+  cluster_version = "1.21"
+  subnets         = ["subnet-06d634c2ec29a61ac", "subnet-0937cce09d1668c4b", "subnet-0bd163902e4165d24"] # Replace with the IDs of your VPC subnets
+  vpc_id          = "vpc-0bdba944130cdb522" # Replace with the ID of your VPC
 
   tags = {
     Terraform   = "true"
