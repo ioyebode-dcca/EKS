@@ -65,35 +65,21 @@ module "eks" {
   version = "17.5.0"
 
   cluster_name = "my-eks-cluster"
-  cluster_version = "1.21" # Replace with the desired EKS version
+  subnets      = ["subnet-06d634c2ec29a61ac", "subnet-0937cce09d1668c4b", "subnet-0bd163902e4165d24"] # Replace with the IDs of your VPC subnets
+  vpc_id       = "vpc-0bdba944130cdb522" # Replace with the ID of your VPC
 
-  subnets = [
-    aws_subnet.eks_subnet[0].id,
-    aws_subnet.eks_subnet[1].id,
-    aws_subnet.eks_subnet[2].id,
-  ]
-
-  vpc_id = aws_vpc.eks_vpc.id
-
-  kubeconfig_aws_authenticator_additional_args = [
-    "--region",
-    "${var.region}",
-  ]
+  tags = {
+    Terraform   = "true"
+    Environment = "dev"
+  }
 
   worker_groups_launch_template = [
     {
       name                 = "my-eks-worker-group"
       instance_type       = "t2.small"
       asg_desired_capacity = 2
-      additional_security_group_ids = [
-        aws_security_group.eks_sg.id
-      ]
-      ami_id              = data.aws_ami.eks_worker.id
-      subnets             = [
-        aws_subnet.eks_subnet[0].id,
-        aws_subnet.eks_subnet[1].id,
-        aws_subnet.eks_subnet[2].id,
-      ]
+      additional_security_group_ids = ["sg-080799143e51cee36"] # Replace with the IDs of any additional security groups
+      subnets             = ["subnet-0bd163902e4165d24", "subnet-0937cce09d1668c4b", "subnet-06d634c2ec29a61ac"] # Replace with the IDs of your VPC subnets
       tags = {
         Terraform   = "true"
         Environment = "dev"
