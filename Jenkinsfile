@@ -82,7 +82,7 @@ pipeline {
         stage('Push Docker Image to Registry') {
             steps {
                 script{
-                    docker.withRegistry('https://150685619118.dkr.ecr.us-east-1.amazonaws.com/', 'ecr:us-east-1:aws-credentials') {
+                    docker.withRegistry('https://861276101474.dkr.ecr.us-east-1.amazonaws.com/underwater/', 'ecr:us-east-1:aws-credentials') {
                         app.push("${env.BUILD_NUMBER}")
                         app.push("latest")
                     }
