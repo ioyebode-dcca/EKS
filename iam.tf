@@ -1,11 +1,3 @@
-terraform {
-  required_providers {
-    aws = {
-      source = "hashicorp/aws"
-    }
-  }
-}
-
 # IAM Role for EKS Control Plane
 resource "aws_iam_role" "eks_iam_role" {
   name = "eks-cluster-role"
