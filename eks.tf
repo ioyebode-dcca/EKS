@@ -9,10 +9,12 @@ module "eks" {
 
   enable_irsa = true
   
-  # These are important for accessing the cluster
   cluster_endpoint_public_access  = true
   cluster_endpoint_private_access = true
 
-  # Important for auth management
-  manage_aws_auth_configmap = true
+  # Change this to false to avoid the auth ConfigMap error
+  manage_aws_auth_configmap = false
+
+  # Add this to handle auth outside the module
+  create_aws_auth_configmap = false
 }
