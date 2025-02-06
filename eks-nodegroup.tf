@@ -11,6 +11,7 @@ resource "aws_eks_node_group" "eks_nodes" {
   }
 
   instance_types = ["t3.small"]
+  capacity_type  = "SPOT"
 
-  depends_on = [module.eks]  # Ensure the EKS cluster is created first
+  depends_on = [module.eks]
 }
