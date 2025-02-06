@@ -1,18 +1,16 @@
-module "eks_node_group" {
-  source  = "terraform-aws-modules/eks/aws//modules/eks-managed-node-group"
-  version = "19.0.0"
+resource "aws_eks_node_group" "eks_nodes" {
+  cluster_name    = module.eks.cluster_name
+  node_group_name = "default"
+  node_role_arn   = aws_iam_role.worker_nodes_role.arn
+  subnet_ids      = var.subnet_ids
 
-  cluster_name = module.eks.cluster_name  # Ensure it references the correct cluster
-  subnet_ids   = var.subnet_ids           # Ensure subnets match EKS
-
-  eks_managed_node_groups = {
-    default = {
-      desired_size   = 1
-      min_size       = 1
-      max_size       = 2
-      instance_types = ["t3.small"]
-    }
+  scaling_config {
+    desired_size = 1
+    min_size     = 1
+    max_size     = 2
   }
 
-  depends_on = [module.eks]  # Ensure the cluster is created before nodes
+  instance_types = ["t3.small"]
+
+  depends_on = [module.eks]  # Ensure the EKS cluster is created first
 }
