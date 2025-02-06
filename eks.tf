@@ -7,6 +7,10 @@ module "eks" {
   subnet_ids      = var.subnet_ids
   vpc_id          = var.vpc_id
 
-  # IAM role should be passed as an input variable (not cluster_role_arn)
   enable_irsa = true
+}
 
+# Output the cluster name to be used in eks-nodegroup.tf
+output "eks_cluster_name" {
+  value = module.eks.cluster_name
+}
