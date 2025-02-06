@@ -7,7 +7,7 @@ module "eks" {
   subnets         = aws_subnet.eks_subnet.*.id
   vpc_id          = aws_vpc.eks_vpc.id
 
-  cluster_role_arn = aws_iam_role.eks-iam-role.arn  # Fix: Pass IAM role to EKS
+  iam_role_arn = aws_iam_role.eks_iam_role.arn  # Fix: Pass IAM role to EKS
 
   worker_groups_launch_template = [
     {
