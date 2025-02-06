@@ -1,13 +1,13 @@
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "17.5.0"
+  version = "19.0.0"  # Upgrade to a newer version
 
   cluster_name    = "DevOps-cluster"
   cluster_version = "1.31"
-  subnets         = aws_subnet.eks_subnet.*.id
-  vpc_id          = aws_vpc.eks_vpc.id
+  subnet_ids      = var.subnet_ids
+  vpc_id          = var.vpc_id
 
-  iam_role_arn = aws_iam_role.eks_iam_role.arn  # Fix: Pass IAM role to EKS
+  cluster_role_arn = aws_iam_role.eks_iam_role.arn
 
   worker_groups_launch_template = [
     {
