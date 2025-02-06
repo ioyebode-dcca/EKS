@@ -12,9 +12,7 @@ module "eks" {
   cluster_endpoint_public_access  = true
   cluster_endpoint_private_access = true
 
-  # Change this to false to avoid the auth ConfigMap error
+  # Disable built-in auth management
   manage_aws_auth_configmap = false
-
-  # Add this to handle auth outside the module
   create_aws_auth_configmap = false
 }
