@@ -144,16 +144,17 @@ pipeline {
                             kubectl delete pods --all || true
                         '''
                         
-                        // Delete ECR images only
+                        // Check if ECR repository exists before trying to delete images
                         sh '''
-                            # List all image IDs in the repository
-                            IMAGE_IDS=$(aws ecr list-images --repository-name underwater --query 'imageIds[*]' --output json)
-                            
-                            # Delete all images if there are any
-                            if [ "$IMAGE_IDS" != "[]" ]; then
-                                aws ecr batch-delete-image \
-                                    --repository-name underwater \
-                                    --image-ids "$IMAGE_IDS" || true
+                            if aws ecr describe-repositories --repository-names underwater 2>/dev/null; then
+                                IMAGE_IDS=$(aws ecr list-images --repository-name underwater --query 'imageIds[*]' --output json)
+                                if [ "$IMAGE_IDS" != "[]" ]; then
+                                    aws ecr batch-delete-image \
+                                        --repository-name underwater \
+                                        --image-ids "$IMAGE_IDS" || true
+                                fi
+                            else
+                                echo "ECR repository 'underwater' does not exist. Skipping image cleanup."
                             fi
                         '''
                         
