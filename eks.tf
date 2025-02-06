@@ -12,7 +12,4 @@ module "eks" {
   # Add these for proper endpoint access
   cluster_endpoint_public_access  = true
   cluster_endpoint_private_access = true
-
-  # Add proper cluster security group rules
-  vpc_security_group_ids = []
 }
