@@ -9,3 +9,27 @@ resource "aws_subnet" "eks_subnet" {
     Name = "eks-subnet-${count.index}"
   }
 }
+
+resource "aws_security_group" "eks_sg" {
+  name_prefix = "eks-"
+  vpc_id      = var.vpc_id  # Ensure it uses the correct VPC ID
+
+  ingress {
+    from_port   = 0
+    to_port     = 65535
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 65535
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "eks-security-group"
+  }
+}
+
