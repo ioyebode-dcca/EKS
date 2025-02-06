@@ -40,20 +40,6 @@ resource "aws_iam_role_policy_attachment" "AmazonEKS_CNI_Policy" {
   role       = aws_iam_role.eks_iam_role.name
 }
 
-# EKS Cluster Resource (Corrected)
-resource "aws_eks_cluster" "eks_cluster" {
-  name     = "DevOps-cluster"
-  role_arn = aws_iam_role.eks_iam_role.arn
-
-  vpc_config {
-    subnet_ids = [var.subnet_id_1, var.subnet_id_2]
-  }
-
-  depends_on = [
-    aws_iam_role.eks_iam_role,
-  ]
-}
-
 # IAM Role for Worker Nodes
 resource "aws_iam_role" "worker_nodes_role" {
   name = "eks-worker-nodes-role"
@@ -87,25 +73,3 @@ resource "aws_iam_role_policy_attachment" "AmazonEC2ContainerRegistryReadOnly" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
   role       = aws_iam_role.worker_nodes_role.name
 }
-
-## EKS Node Group (Worker Nodes)
-#resource "aws_eks_node_group" "worker_node_group" {
-#  cluster_name  = aws_eks_cluster.eks_cluster.name
-#  node_group_name = "eks-worker-nodes"
-#  node_role_arn  = aws_iam_role.worker_nodes_role.arn
-#
-#  subnet_ids = subnet_ids = var.subnet_ids
-#  
-#  scaling_config {
-#    desired_size = 2
-#    min_size     = 1
-#    max_size     = 3
-#  }
-#
-#  instance_types = ["t2.micro"]
-#
-#  depends_on = [
-#    aws_eks_cluster.eks_cluster,
-#    aws_iam_role.worker_nodes_role
-#  ]
-#}
