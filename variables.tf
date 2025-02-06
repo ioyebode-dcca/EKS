@@ -25,7 +25,7 @@ variable "cluster_name" {
 # Subnet IDs (Use a List Instead of Individual Variables)
 variable "subnet_ids" {
   type    = list(string)
-  default = ["subnet-04edc9636f2ac6bf0", "subnet-0d4377228ef0aa852"]
+  default = ["subnet-0bc5ce8bf3a2857a3", "subnet-039132a7ecbffea63", "subnet-05f419a0c06eacbe7"]
 }
 
 # VPC ID (If Needed for References)
