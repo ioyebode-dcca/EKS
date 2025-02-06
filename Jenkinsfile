@@ -144,21 +144,25 @@ pipeline {
                             kubectl delete pods --all || true
                         '''
                         
-                        // Delete ECR repository and images
+                        // Delete ECR images only
                         sh '''
-                            aws ecr delete-repository \
-                                --repository-name underwater \
-                                --force || true
+                            # List all image IDs in the repository
+                            IMAGE_IDS=$(aws ecr list-images --repository-name underwater --query 'imageIds[*]' --output json)
+                            
+                            # Delete all images if there are any
+                            if [ "$IMAGE_IDS" != "[]" ]; then
+                                aws ecr batch-delete-image \
+                                    --repository-name underwater \
+                                    --image-ids "$IMAGE_IDS" || true
+                            fi
                         '''
                         
                         // Destroy all Terraform-managed infrastructure
                         sh '''
                             terraform init
-                            terraform destroy -auto-approve \
-                                -var="AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}" \
-                                -var="AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}"
+                            terraform destroy -auto-approve
                         '''
-                        
+                
                         // Clean up any local Docker images
                         sh '''
                             docker rmi -f $(docker images 'underwater' -a -q) || true
