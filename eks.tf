@@ -8,12 +8,14 @@ module "eks" {
   vpc_id          = var.vpc_id
 
   enable_irsa = true
-  
   cluster_endpoint_public_access  = true
   cluster_endpoint_private_access = true
 
   manage_aws_auth_configmap = false
   create_aws_auth_configmap = false
-  
+
   cluster_endpoint_public_access_cidrs = ["0.0.0.0/0"]
+
+  # ✅ Ensure EKS cluster uses the correct security group
+  cluster_security_group_id = aws_security_group.eks_sg.id
 }
