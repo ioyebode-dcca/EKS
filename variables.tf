@@ -36,11 +36,6 @@ data "aws_subnets" "eks_subnets" {
   }
 }
 
-variable "subnet_ids" {
-  type    = list(string)
-  default = data.aws_subnets.eks_subnets.ids
-}
-
 # ✅ SSH Key Name for Worker Nodes (Replace with your AWS Key Name)
 variable "ssh_key_name" {
   type    = string
