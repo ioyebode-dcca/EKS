@@ -14,7 +14,4 @@ module "eks" {
 
   manage_aws_auth_configmap = false
   create_aws_auth_configmap = false
-
-  # Add cluster security group rules
-  vpc_security_group_ids = [aws_security_group.eks_sg.id]
 }
