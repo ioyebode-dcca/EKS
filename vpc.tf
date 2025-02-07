@@ -10,24 +10,23 @@ resource "aws_vpc" "eks_vpc" {
   }
 }
 
-# ✅ Create Public Subnets for EKS Worker Nodes
+# ✅ Create Public Subnets for Worker Nodes
 resource "aws_subnet" "eks_subnet" {
   count = 3
 
   vpc_id                  = aws_vpc.eks_vpc.id
   cidr_block              = "10.0.${count.index + 1}.0/24"
   availability_zone       = element(["us-east-1a", "us-east-1b", "us-east-1c"], count.index)
-  map_public_ip_on_launch = true  # ✅ Ensure public subnets allow internet access
+  map_public_ip_on_launch = true  # Ensure public subnets allow internet access
 
   tags = {
-    Name = "eks-subnet-${count.index}"
+    Name = "eks-public-subnet-${count.index}"
     "kubernetes.io/cluster/DevOps-cluster" = "shared"
     "kubernetes.io/role/elb" = "1"
-    "kubernetes.io/role/internal-elb" = "1"
   }
 }
 
-# ✅ Ensure Internet Access for Public Subnets
+# ✅ Create Internet Gateway
 resource "aws_internet_gateway" "eks_igw" {
   vpc_id = aws_vpc.eks_vpc.id
 
@@ -36,7 +35,8 @@ resource "aws_internet_gateway" "eks_igw" {
   }
 }
 
-resource "aws_route_table" "eks_rt" {
+# ✅ Create Route Table for Public Subnets
+resource "aws_route_table" "eks_public_rt" {
   vpc_id = aws_vpc.eks_vpc.id
 
   route {
@@ -45,23 +45,23 @@ resource "aws_route_table" "eks_rt" {
   }
 
   tags = {
-    Name = "eks-rt"
+    Name = "eks-public-rt"
   }
 }
 
 # ✅ Associate Public Subnets with Route Table
-resource "aws_route_table_association" "eks_rta" {
+resource "aws_route_table_association" "eks_public_rta" {
   count = 3
   subnet_id      = aws_subnet.eks_subnet[count.index].id
-  route_table_id = aws_route_table.eks_rt.id
+  route_table_id = aws_route_table.eks_public_rt.id
 }
 
-# ✅ Security Group for Worker Nodes
+# ✅ Create Security Group for EKS Cluster & Worker Nodes
 resource "aws_security_group" "eks_sg" {
   name_prefix = "eks-"
   vpc_id      = aws_vpc.eks_vpc.id
 
-  # Allow inbound traffic for EKS API from anywhere
+  # Allow inbound traffic for EKS API
   ingress {
     from_port   = 443
     to_port     = 443
@@ -69,7 +69,7 @@ resource "aws_security_group" "eks_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Allow all traffic within the VPC CIDR (Worker Nodes <--> Control Plane)
+  # Allow all traffic within the VPC CIDR
   ingress {
     from_port   = 0
     to_port     = 0
@@ -77,7 +77,7 @@ resource "aws_security_group" "eks_sg" {
     cidr_blocks = [aws_vpc.eks_vpc.cidr_block]
   }
 
-  # ✅ Allow worker nodes to access the internet (for updates & pulling images)
+  # Allow worker nodes to access the internet
   egress {
     from_port   = 0
     to_port     = 0
