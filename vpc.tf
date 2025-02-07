@@ -59,25 +59,28 @@ resource "aws_security_group" "eks_sg" {
   name_prefix = "eks-"
   vpc_id      = aws_vpc.eks_vpc.id
 
-  ingress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    self        = true
-  }
-
+  # Allow inbound traffic for EKS API from anywhere
   ingress {
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["0.0.0.0/0"]  # Or restrict to trusted IPs if needed
   }
 
+  # ✅ Allow all traffic within the VPC CIDR (Worker Nodes <--> Control Plane)
+  ingress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = [aws_vpc.eks_vpc.cidr_block]  # Allow all internal traffic
+  }
+
+  # ✅ Allow all outbound traffic to any destination (Fixes API connectivity)
   egress {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["0.0.0.0/0"]  # Allowing all outbound traffic
   }
 
   tags = {
