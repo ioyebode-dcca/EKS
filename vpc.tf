@@ -16,13 +16,13 @@ resource "aws_subnet" "eks_subnet" {
   vpc_id     = aws_vpc.eks_vpc.id 
   availability_zone = element(["us-east-1a", "us-east-1b", "us-east-1c"], count.index)
   
-  # Required for EKS
   map_public_ip_on_launch = true
 
   tags = {
     Name = "eks-subnet-${count.index}"
     "kubernetes.io/cluster/DevOps-cluster" = "shared"
-    "kubernetes.io/role/elb" = "1"
+    "kubernetes.io/role/elb" = 1
+    "kubernetes.io/role/internal-elb" = 1
   }
 }
 
