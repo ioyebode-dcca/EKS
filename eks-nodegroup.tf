@@ -13,19 +13,15 @@ resource "aws_eks_node_group" "eks_nodes" {
   instance_types = ["t3.small"]
   capacity_type  = "SPOT"
 
-  launch_template {
-    id      = aws_launch_template.eks_node_group.id
-    version = aws_launch_template.eks_node_group.latest_version
-  }
-
-  tags = {
-    "kubernetes.io/cluster/${module.eks.cluster_name}" = "owned"
-    "k8s.io/cluster-autoscaler/enabled"               = "true"
-    "k8s.io/cluster-autoscaler/${module.eks.cluster_name}" = "owned"
-  }
+  # Remove the launch template configuration temporarily for testing
+  # launch_template {
+  #   id      = aws_launch_template.eks_node_group.id
+  #   version = aws_launch_template.eks_node_group.latest_version
+  # }
 
   depends_on = [
     module.eks,
+    null_resource.create_aws_auth,
     aws_iam_role_policy_attachment.AmazonEKSWorkerNodePolicy,
     aws_iam_role_policy_attachment.AmazonEKS_CNI_Policy_Workers,
     aws_iam_role_policy_attachment.AmazonEC2ContainerRegistryReadOnly
