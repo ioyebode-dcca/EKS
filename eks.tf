@@ -14,4 +14,6 @@ module "eks" {
 
   manage_aws_auth_configmap = false
   create_aws_auth_configmap = false
+  
+  cluster_endpoint_public_access_cidrs = ["0.0.0.0/0"]
 }
