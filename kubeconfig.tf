@@ -5,9 +5,14 @@ resource "null_resource" "update_kubeconfig" {
   provisioner "local-exec" {
     interpreter = ["/bin/bash", "-c"]
     command     = <<-EOT
-      aws eks update-kubeconfig --name ${module.eks.cluster_name} --region us-east-1
-      echo "Waiting for cluster endpoint..."
-      sleep 120  # Increased wait time
+      echo "Updating kubeconfig for EKS cluster..."
+      aws eks update-kubeconfig --name ${module.eks.cluster_name} --region us-east-1 --alias DevOps-cluster
+
+      echo "Waiting for cluster API endpoint to be reachable..."
+      aws eks wait cluster-active --name ${module.eks.cluster_name}
+
+      echo "Waiting for cluster endpoint availability..."
+      sleep 60
     EOT
   }
 }
@@ -19,29 +24,30 @@ resource "null_resource" "verify_connection" {
   provisioner "local-exec" {
     interpreter = ["/bin/bash", "-c"]
     command     = <<-EOT
+      echo "Checking cluster connectivity..."
       for i in {1..10}; do
         if kubectl get ns kube-system; then
-          echo "Successfully connected to cluster"
+          echo "✅ Successfully connected to cluster"
           exit 0
         fi
-        echo "Attempt $i: Waiting for cluster connectivity..."
+        echo "⏳ Attempt $i: Waiting for cluster connectivity..."
         sleep 30
       done
-      echo "Failed to connect to cluster after 10 attempts"
+      echo "❌ Failed to connect to cluster after 10 attempts"
       exit 1
     EOT
   }
 }
 
-# Create aws-auth ConfigMap with error handling
+# ✅ Fix `aws-auth` ConfigMap to register worker nodes
 resource "null_resource" "create_aws_auth" {
   depends_on = [null_resource.verify_connection]
 
   provisioner "local-exec" {
     interpreter = ["/bin/bash", "-c"]
     command     = <<-EOT
-      for i in {1..5}; do
-        if kubectl apply -f - --validate=false <<EOF
+      echo "Creating aws-auth ConfigMap for worker nodes..."
+      cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -55,15 +61,7 @@ data:
         - system:bootstrappers
         - system:nodes
 EOF
-        then
-          echo "Successfully applied aws-auth ConfigMap"
-          exit 0
-        fi
-        echo "Attempt $i: Retrying aws-auth ConfigMap creation..."
-        sleep 30
-      done
-      echo "Failed to create aws-auth ConfigMap after 5 attempts"
-      exit 1
+      echo "✅ aws-auth ConfigMap applied successfully!"
     EOT
   }
 }
