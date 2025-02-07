@@ -28,14 +28,6 @@ variable "vpc_id" {
   default = "vpc-01c3435ed182b7ac3"
 }
 
-# ✅ Dynamically Retrieve Subnet IDs in the VPC
-data "aws_subnets" "eks_subnets" {
-  filter {
-    name   = "vpc-id"
-    values = [var.vpc_id]
-  }
-}
-
 # ✅ SSH Key Name for Worker Nodes (Replace with your AWS Key Name)
 variable "ssh_key_name" {
   type    = string
