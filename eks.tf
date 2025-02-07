@@ -2,7 +2,7 @@ module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "19.21.0"
 
-  cluster_name    = "DevOps-cluster"
+  cluster_name    = var.cluster_name
   cluster_version = "1.31"
   subnet_ids      = var.subnet_ids
   vpc_id          = var.vpc_id
@@ -17,61 +17,17 @@ module "eks" {
 
   cluster_endpoint_public_access_cidrs = ["0.0.0.0/0"]
 
-  # ✅ Ensure EKS cluster uses the correct security group
+  # ✅ Use the security group from `vpc.tf`
   cluster_security_group_id = aws_security_group.eks_sg.id
 
-  # ✅ Attach security groups to worker nodes
-  node_security_group_additional_rules = {
-    all_traffic = {
-      description = "Allow all traffic within the VPC"
-      protocol    = "-1"
-      from_port   = 0
-      to_port     = 0
-      cidr_blocks = [aws_vpc.eks_vpc.cidr_block]
+  # ✅ Worker Node Group Configuration
+  eks_managed_node_groups = {
+    default = {
+      desired_size = 2
+      min_size     = 1
+      max_size     = 3
+      instance_types = ["t3.small"]
+      security_group_ids = [aws_security_group.eks_sg.id]
     }
   }
-}
-
-# ✅ Security Group for EKS Cluster
-resource "aws_security_group" "eks_sg" {
-  name_prefix = "eks-"
-  vpc_id      = aws_vpc.eks_vpc.id
-
-  # Allow inbound traffic for EKS API
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]  # Can be restricted if needed
-  }
-
-  # ✅ Allow all traffic within the VPC CIDR (Worker Nodes <--> Control Plane)
-  ingress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = [aws_vpc.eks_vpc.cidr_block]
-  }
-
-  # ✅ Allow all outbound traffic to any destination (Fixes API connectivity)
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "eks-security-group"
-  }
-}
-
-# ✅ Security Group Rule for EKS Cluster Outbound Traffic
-resource "aws_security_group_rule" "eks_cluster_egress_rule" {
-  type              = "egress"
-  from_port         = 0
-  to_port           = 0
-  protocol          = "-1"
-  cidr_blocks       = ["0.0.0.0/0"]
-  security_group_id = module.eks.cluster_security_group_id
 }
