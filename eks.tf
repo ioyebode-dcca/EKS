@@ -4,8 +4,11 @@ module "eks" {
 
   cluster_name    = var.cluster_name
   cluster_version = "1.31"
-  subnet_ids      = data.aws_subnets.eks_subnets.ids  # ✅ Dynamically fetched subnets
-  vpc_id          = data.aws_vpc.eks_vpc.id           # ✅ Dynamically fetched VPC ID
+
+  # ✅ Fix: Ensure Subnet IDs Are Not Empty
+  subnet_ids = length(data.aws_subnets.eks_subnets.ids) > 0 ? data.aws_subnets.eks_subnets.ids : var.subnet_ids
+
+  vpc_id = data.aws_vpc.eks_vpc.id
 
   enable_irsa = true
 
@@ -17,7 +20,7 @@ module "eks" {
 
   cluster_endpoint_public_access_cidrs = ["0.0.0.0/0"]
 
-  # ✅ Use the security group from `vpc.tf`
+  # ✅ Ensure EKS Security Group Is Used
   cluster_security_group_id = aws_security_group.eks_sg.id
 
   # ✅ Worker Node Group Configuration

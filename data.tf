@@ -1,8 +1,8 @@
-# ✅ Fetch VPC Dynamically with Error Handling
+# ✅ Fetch VPC Dynamically by ID Instead of Name
 data "aws_vpc" "eks_vpc" {
   filter {
     name   = "vpc-id"
-    values = [var.vpc_id] # Use VPC ID directly from `variables.tf`
+    values = [var.vpc_id]  # Ensure the correct VPC ID is used
   }
 }
 
@@ -12,7 +12,7 @@ data "aws_subnets" "eks_subnets" {
     name   = "vpc-id"
     values = [data.aws_vpc.eks_vpc.id]
   }
-  
+
   # ✅ Ensure only subnets tagged for EKS are fetched
   filter {
     name   = "tag:kubernetes.io/cluster/DevOps-cluster"
@@ -20,7 +20,7 @@ data "aws_subnets" "eks_subnets" {
   }
 }
 
-# ✅ Output Subnet IDs and VPC ID for Debugging
+# ✅ Output Subnet IDs for Debugging
 output "eks_subnet_ids" {
   value = data.aws_subnets.eks_subnets.ids
 }
