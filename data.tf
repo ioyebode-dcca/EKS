@@ -1,12 +1,9 @@
 # ✅ Fetch VPC Dynamically
 data "aws_vpc" "eks_vpc" {
-  filter {
-    name   = "vpc-id"
-    values = [var.vpc_id]  # Ensure the correct VPC ID is used
-  }
+  id = var.vpc_id
 }
 
-# ✅ Fetch Subnets Dynamically
+# ✅ Fetch Private Subnets for EKS
 data "aws_subnets" "eks_subnets" {
   filter {
     name   = "vpc-id"
@@ -14,11 +11,12 @@ data "aws_subnets" "eks_subnets" {
   }
 
   filter {
-    name   = "tag:kubernetes.io/cluster/DevOps-cluster"
-    values = ["shared"]
+    name   = "tag:Type"
+    values = ["private"]
   }
 }
 
+# ✅ Output for Debugging (Ensures Subnets Are Found)
 output "eks_subnet_ids" {
-  value = data.aws_subnets.eks_subnets.ids
+  value = length(data.aws_subnets.eks_subnets.ids) > 0 ? data.aws_subnets.eks_subnets.ids : []
 }
