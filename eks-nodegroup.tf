@@ -12,7 +12,7 @@ resource "aws_eks_node_group" "eks_nodes" {
     max_size     = 2
   }
 
-  instance_types = ["t3.small"]
+  instance_types = ["t3.nano"]
   capacity_type  = "ON_DEMAND"
 
   remote_access {
