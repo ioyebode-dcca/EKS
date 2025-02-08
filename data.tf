@@ -1,8 +1,8 @@
-# ✅ Fetch VPC Dynamically by ID Instead of Name
+# ✅ Fetch VPC Dynamically
 data "aws_vpc" "eks_vpc" {
   filter {
     name   = "vpc-id"
-    values = [var.vpc_id]  # Ensure correct VPC ID is used
+    values = [var.vpc_id]  # Ensure the correct VPC ID is used
   }
 }
 
@@ -13,16 +13,10 @@ data "aws_subnets" "eks_subnets" {
     values = [data.aws_vpc.eks_vpc.id]
   }
 
-  # ✅ Ensure only subnets tagged for EKS are fetched
   filter {
     name   = "tag:kubernetes.io/cluster/DevOps-cluster"
     values = ["shared"]
   }
-}
-
-# ✅ Output VPC and Subnet IDs for Debugging
-output "eks_vpc_id" {
-  value = data.aws_vpc.eks_vpc.id
 }
 
 output "eks_subnet_ids" {

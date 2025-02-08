@@ -5,8 +5,8 @@ module "eks" {
   cluster_name    = var.cluster_name
   cluster_version = "1.31"
 
-  # ✅ FIX: Prevent `coalescelist` failure by ensuring non-empty subnet list
-  subnet_ids = length(var.subnet_ids) > 0 ? var.subnet_ids : length(data.aws_subnets.eks_subnets.ids) > 0 ? data.aws_subnets.eks_subnets.ids : []
+  # ✅ FIX: Ensure Subnet IDs Are Not Empty
+  subnet_ids = length(var.subnet_ids) > 0 ? var.subnet_ids : data.aws_subnets.eks_subnets.ids
 
   vpc_id = data.aws_vpc.eks_vpc.id
 
