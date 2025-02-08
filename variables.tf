@@ -25,7 +25,7 @@ variable "cluster_name" {
 # ✅ VPC ID
 variable "vpc_id" {
   type    = string
-  default = "vpc-01c3435ed182b7ac3"
+  default = "vpc-01c3435ed182b7ac3" # Replace with your actual VPC ID
 }
 
 # ✅ SSH Key Name for Worker Nodes (Replace with your AWS Key Name)

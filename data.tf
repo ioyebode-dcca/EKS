@@ -1,8 +1,8 @@
 # ✅ Fetch VPC Dynamically with Error Handling
 data "aws_vpc" "eks_vpc" {
   filter {
-    name   = "tag:Name"
-    values = ["eks-vpc"] # Ensure this matches your VPC name in AWS
+    name   = "vpc-id"
+    values = [var.vpc_id] # Use VPC ID directly from `variables.tf`
   }
 }
 
