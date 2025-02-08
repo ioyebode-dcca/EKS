@@ -30,7 +30,8 @@ variable "ssh_key_name" {
 
 variable "subnet_ids" {
   type        = list(string)
-  description = "List of subnet IDs where EKS will be deployed"
-  default     = ["subnet-05f419a0c06eacbe7", "subnet-039132a7ecbffea63", "subnet-0bc5ce8bf3a2857a3"]
+  description = "List of private subnet IDs for EKS"
+  default     = []  # ✅ Uses dynamically fetched subnets if available
 }
+
 
