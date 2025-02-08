@@ -5,10 +5,10 @@ module "eks" {
   cluster_name    = var.cluster_name
   cluster_version = "1.31"
 
-  # ✅ FIX: Ensure Subnet IDs Are Not Empty
+  # ✅ Fix: Ensure at least one subnet is provided
   subnet_ids = length(var.subnet_ids) > 0 ? var.subnet_ids : data.aws_subnets.eks_subnets.ids
 
-  vpc_id = data.aws_vpc.eks_vpc.id
+  vpc_id = var.vpc_id
 
   enable_irsa = true
 

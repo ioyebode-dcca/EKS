@@ -30,8 +30,15 @@ variable "ssh_key_name" {
 
 variable "subnet_ids" {
   type        = list(string)
-  description = "List of private subnet IDs for EKS"
-  default     = []  # ✅ Uses dynamically fetched subnets if available
+  description = "List of private subnet IDs for EKS cluster"
+  default     = ["subnet-05f419a0c06eacbe7", "subnet-039132a7ecbffea63"]  # ✅ Replace with your actual subnets
 }
+
+variable "control_plane_subnet_ids" {
+  type        = list(string)
+  description = "List of control plane subnets"
+  default     = []  # ✅ Default to empty, but EKS needs at least two subnets
+}
+
 
 
