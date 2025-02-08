@@ -5,8 +5,8 @@ module "eks" {
   cluster_name    = var.cluster_name
   cluster_version = "1.31"
 
-  # ✅ Ensure Subnet IDs Are Not Empty
-  subnet_ids = length(var.subnet_ids) > 0 ? var.subnet_ids : data.aws_subnets.eks_subnets.ids
+  # ✅ FIX: Prevent `coalescelist` failure by ensuring non-empty subnet list
+  subnet_ids = length(var.subnet_ids) > 0 ? var.subnet_ids : length(data.aws_subnets.eks_subnets.ids) > 0 ? data.aws_subnets.eks_subnets.ids : []
 
   vpc_id = data.aws_vpc.eks_vpc.id
 
@@ -20,10 +20,8 @@ module "eks" {
 
   cluster_endpoint_public_access_cidrs = ["0.0.0.0/0"]
 
-  # ✅ Ensure EKS Security Group Is Used
   cluster_security_group_id = aws_security_group.eks_sg.id
 
-  # ✅ Worker Node Group Configuration
   eks_managed_node_groups = {
     default = {
       desired_size = 2
