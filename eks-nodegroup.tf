@@ -2,7 +2,7 @@ resource "aws_eks_node_group" "eks_nodes" {
   cluster_name    = module.eks.cluster_name
   node_group_name = "default"
   node_role_arn   = aws_iam_role.worker_nodes_role.arn
-  subnet_ids      = data.aws_subnets.eks_subnets.ids  # ✅ Use dynamically fetched subnets
+  subnet_ids      = data.aws_subnets.eks_subnets.ids  # ✅ Dynamically fetched subnets
 
   scaling_config {
     desired_size = 1
@@ -13,7 +13,7 @@ resource "aws_eks_node_group" "eks_nodes" {
   instance_types = ["t3.small"]
   capacity_type  = "ON_DEMAND"
 
-  # ✅ Correct way to allow remote SSH access (if needed)
+  # ✅ Allow remote SSH access
   remote_access {
     ec2_ssh_key = var.ssh_key_name  # Ensure this key exists in AWS EC2
     source_security_group_ids = [aws_security_group.eks_sg.id]
