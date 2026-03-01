@@ -68,7 +68,7 @@ pipeline {
     environment {
         ECR_REGISTRY   = '861276101474.dkr.ecr.us-east-1.amazonaws.com'
         AWS_REGION     = 'us-east-1'
-        MANIFESTS_REPO = 'git@github.com:your-username/underwater-manifests.git'
+        MANIFESTS_REPO = 'git@github.com:ioyebode-dcca/underwater-manifests.git'
         SONAR_TOKEN    = credentials('sonar-token')
         SNYK_TOKEN     = credentials('snyk-token')
 
