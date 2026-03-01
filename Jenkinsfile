@@ -1,189 +1,422 @@
 pipeline {
-    agent any
-    environment {
-        AWS_ACCESS_KEY_ID     = credentials('AWS_ACCESS_KEY_ID')
-        AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY')
+
+    // ── KUBERNETES POD AGENT ─────────────────────────────────────────────────
+    agent {
+        kubernetes {
+            yaml '''
+                apiVersion: v1
+                kind: Pod
+                metadata:
+                  labels:
+                    app: jenkins-agent
+                spec:
+                  serviceAccountName: jenkins
+                  containers:
+                    - name: builder
+                      image: maven:3.9-eclipse-temurin-17
+                      command: [sleep]
+                      args: [infinity]
+                      resources:
+                        requests:
+                          cpu: "500m"
+                          memory: "1Gi"
+                        limits:
+                          cpu: "1000m"
+                          memory: "2Gi"
+                    - name: docker
+                      image: docker:24-dind
+                      securityContext:
+                        privileged: true
+                      env:
+                        - name: DOCKER_TLS_CERTDIR
+                          value: ""
+                      resources:
+                        requests:
+                          cpu: "500m"
+                          memory: "512Mi"
+                    - name: terraform
+                      image: hashicorp/terraform:1.7
+                      command: [sleep]
+                      args: [infinity]
+                      resources:
+                        requests:
+                          cpu: "200m"
+                          memory: "256Mi"
+                    - name: aws-tools
+                      image: amazon/aws-cli:latest
+                      command: [sleep]
+                      args: [infinity]
+                      resources:
+                        requests:
+                          cpu: "100m"
+                          memory: "128Mi"
+                    - name: trivy
+                      image: aquasec/trivy:latest
+                      command: [sleep]
+                      args: [infinity]
+                      volumeMounts:
+                        - name: trivy-cache
+                          mountPath: /root/.cache/trivy
+                  volumes:
+                    - name: trivy-cache
+                      emptyDir: {}
+            '''
+        }
     }
+
+    // ── ENVIRONMENT ──────────────────────────────────────────────────────────
+    environment {
+        ECR_REGISTRY   = '861276101474.dkr.ecr.us-east-1.amazonaws.com'
+        AWS_REGION     = 'us-east-1'
+        MANIFESTS_REPO = 'git@github.com:your-username/underwater-manifests.git'
+        SONAR_TOKEN    = credentials('sonar-token')
+        SNYK_TOKEN     = credentials('snyk-token')
+
+        // Derive environment and image tag from branch name
+        // develop → dev-42  |  release → release-42
+        ENVIRONMENT = sh(
+            returnStdout: true,
+            script: '''
+                if [ "${GIT_BRANCH}" = "origin/release" ]; then
+                    echo -n "prod"
+                else
+                    echo -n "dev"
+                fi
+            '''
+        ).trim()
+
+        IMAGE_TAG = sh(
+            returnStdout: true,
+            script: '''
+                if [ "${GIT_BRANCH}" = "origin/release" ]; then
+                    echo -n "release-${BUILD_NUMBER}"
+                else
+                    echo -n "dev-${BUILD_NUMBER}"
+                fi
+            '''
+        ).trim()
+
+        TF_DIR       = "environments/${ENVIRONMENT}"
+        CLUSTER_NAME = "underwater-${ENVIRONMENT}"
+    }
+
     options {
         skipStagesAfterUnstable()
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 60, unit: 'MINUTES')
     }
+
     parameters {
-        choice(name: 'ACTION', choices: ['Deploy', 'Destroy'], description: 'Select the action to perform')
+        choice(
+            name: 'ACTION',
+            choices: ['Deploy', 'Destroy'],
+            description: 'Deploy or destroy resources'
+        )
+        choice(
+            name: 'SERVICE_NAME',
+            choices: ['underwater', 'auth-service', 'api-service'],
+            description: 'Which microservice to build'
+        )
     }
+
     stages {
-        stage('Clean workspace') {
-            when {
-                expression { params.ACTION == 'Deploy' }
-            }
-            steps {
-                cleanWs()
-            }
+
+        // ── SETUP ────────────────────────────────────────────────────────────
+
+        stage('Clean Workspace') {
+            steps { cleanWs() }
         }
-        stage('Clone Repository') { 
-            steps { 
-                script{
-                    checkout scm
-                }
-            }
-        }
-        stage('Set Terraform path') {
+
+        stage('Checkout SCM') {
             steps {
+                checkout scm
                 script {
-                    env.PATH += ":/usr/bin/terraform"
+                    env.GIT_COMMIT_SHORT = sh(
+                        returnStdout: true,
+                        script: "git rev-parse --short HEAD"
+                    ).trim()
+                    echo "Branch: ${GIT_BRANCH} | Environment: ${ENVIRONMENT} | Tag: ${IMAGE_TAG}"
                 }
-                sh 'terraform --version'
-                sh 'pwd'
             }
         }
+
         stage('Verify Tools') {
-            when {
-                expression { params.ACTION == 'Deploy' }
-            }
+            when { expression { params.ACTION == 'Deploy' } }
             steps {
                 parallel(
-                    "Terraform": { sh 'terraform -v' },
-                    "Docker": { sh 'docker -v' },
-                    "AWS": { sh 'aws --version' }
+                    "Terraform": {
+                        container('terraform') { sh 'terraform version' }
+                    },
+                    "Docker": {
+                        container('docker') { sh 'docker version' }
+                    },
+                    "AWS + IRSA": {
+                        container('aws-tools') {
+                            sh '''
+                                aws --version
+                                aws sts get-caller-identity
+                            '''
+                        }
+                    },
+                    "Trivy": {
+                        container('trivy') { sh 'trivy --version' }
+                    }
                 )
             }
         }
-        stage('Verify Other Tools') {
-            when {
-                expression { params.ACTION == 'Deploy' }
-            }
-            steps {
-                parallel(
-                    "Git": { sh 'git --version' },
-                    "NPM": { sh 'npm -v' },
-                    "Ansible": { sh 'ansible --version' }
-                )
-            }
-        }
+
+        // ── INFRASTRUCTURE ───────────────────────────────────────────────────
+
         stage('Terraform Plan') {
-            when {
-                expression { params.ACTION == 'Deploy' }
-            }
+            when { expression { params.ACTION == 'Deploy' } }
             steps {
-                sh 'pwd'
-                sh 'terraform init'
-                sh 'terraform validate'
-                sh 'terraform plan -input=false -out tfplan'
-                sh 'terraform show -no-color tfplan > tfplan.txt'
-            }
-        }
-        stage('Check Plan') {
-            when {
-                expression { params.ACTION == 'Deploy' }
-            }
-            steps {
-                input message: 'Is terraform plan okay?', ok: 'yes'
-            }
-        }
-        stage ('Apply') {
-            when {
-                expression { params.ACTION == 'Deploy' }
-            }
-            steps {
-                input message: 'Do you want to Apply?', ok: 'yes'
-                sh 'terraform apply -input=false tfplan'
-            }
-        }
-        stage('Build Docker Image') { 
-            when {
-                expression { params.ACTION == 'Deploy' }
-            }
-            steps { 
-                script{
-                    app = docker.build("underwater")
+                container('terraform') {
+                    sh """
+                        cd ${TF_DIR}
+                        terraform init
+                        terraform validate
+                        terraform plan -input=false -out tfplan
+                        terraform show -no-color tfplan > tfplan.txt
+                    """
+                    archiveArtifacts artifacts: "${TF_DIR}/tfplan.txt"
                 }
             }
         }
-        stage('Test'){
-            when {
-                expression { params.ACTION == 'Deploy' }
-            }
+
+        stage('Review Terraform Plan') {
+            when { expression { params.ACTION == 'Deploy' } }
             steps {
-                echo 'Empty'
+                input message: "Deploying to ${ENVIRONMENT} — review tfplan.txt and approve?", ok: 'Apply'
             }
         }
-        stage('Push Docker Image to Registry') {
-            when {
-                expression { params.ACTION == 'Deploy' }
-            }
+
+        stage('Terraform Apply') {
+            when { expression { params.ACTION == 'Deploy' } }
             steps {
-                script{
-                    docker.withRegistry('https://861276101474.dkr.ecr.us-east-1.amazonaws.com/underwater/', 'ecr:us-east-1:aws-credentials') {
-                        app.push("${env.BUILD_NUMBER}")
-                        app.push("latest")
+                container('terraform') {
+                    sh """
+                        cd ${TF_DIR}
+                        terraform apply -input=false tfplan
+                    """
+                }
+            }
+        }
+
+        // ── BUILD ────────────────────────────────────────────────────────────
+
+        stage('Build Docker Image') {
+            when { expression { params.ACTION == 'Deploy' } }
+            steps {
+                container('docker') {
+                    sh """
+                        docker build \
+                          --label git-commit=${env.GIT_COMMIT_SHORT} \
+                          --label build-number=${IMAGE_TAG} \
+                          --label environment=${ENVIRONMENT} \
+                          -t ${params.SERVICE_NAME}:${IMAGE_TAG} .
+                    """
+                }
+            }
+        }
+
+        // ── SECURITY SCANNING ────────────────────────────────────────────────
+
+        stage('SonarQube Analysis') {
+            when { expression { params.ACTION == 'Deploy' } }
+            steps {
+                container('builder') {
+                    withSonarQubeEnv('SonarQube') {
+                        sh """
+                            sonar-scanner \
+                              -Dsonar.projectKey=${params.SERVICE_NAME}-${ENVIRONMENT} \
+                              -Dsonar.projectName="${params.SERVICE_NAME} (${ENVIRONMENT})" \
+                              -Dsonar.sources=. \
+                              -Dsonar.login=${SONAR_TOKEN}
+                        """
+                    }
+                    timeout(time: 5, unit: 'MINUTES') {
+                        waitForQualityGate abortPipeline: true
                     }
                 }
             }
         }
-        stage('Deploy'){
-            when {
-                expression { params.ACTION == 'Deploy' }
-            }
+
+        stage('Container Security') {
+            when { expression { params.ACTION == 'Deploy' } }
             steps {
-                sh 'kubectl get nodes'
-                sh 'kubectl apply -f deployment.yml'
-                sh 'kubectl rollout restart deployment ecr-app-underwater'
+                parallel(
+                    "Trivy CVE Scan": {
+                        container('trivy') {
+                            sh """
+                                trivy image \
+                                  --exit-code 0 \
+                                  --severity HIGH,CRITICAL \
+                                  --format json \
+                                  -o trivy-report.json \
+                                  ${params.SERVICE_NAME}:${IMAGE_TAG}
+
+                                # Hard fail on CRITICAL
+                                trivy image \
+                                  --exit-code 1 \
+                                  --severity CRITICAL \
+                                  --no-progress \
+                                  ${params.SERVICE_NAME}:${IMAGE_TAG}
+                            """
+                            archiveArtifacts artifacts: 'trivy-report.json'
+                        }
+                    },
+                    "Snyk Scan": {
+                        container('builder') {
+                            sh """
+                                npm install -g snyk
+                                snyk auth ${SNYK_TOKEN}
+                                snyk test --severity-threshold=high --json > snyk-report.json || true
+                                snyk monitor || true
+                            """
+                            archiveArtifacts artifacts: 'snyk-report.json', allowEmptyArchive: true
+                        }
+                    }
+                )
             }
         }
-        stage('Cleanup Resources') {
-            when {
-                expression { params.ACTION == 'Destroy' }
-            }
+
+        // ── PUBLISH ──────────────────────────────────────────────────────────
+
+        stage('Push to ECR') {
+            when { expression { params.ACTION == 'Deploy' } }
             steps {
-                input message: 'Are you sure you want to destroy all resources? This action cannot be undone!', ok: 'Yes, Destroy Everything'
+                container('docker') {
+                    sh """
+                        # IRSA handles auth — no stored credentials
+                        aws ecr get-login-password --region ${AWS_REGION} | \
+                          docker login \
+                            --username AWS \
+                            --password-stdin \
+                            ${ECR_REGISTRY}
+
+                        docker tag ${params.SERVICE_NAME}:${IMAGE_TAG} \
+                          ${ECR_REGISTRY}/${params.SERVICE_NAME}:${IMAGE_TAG}
+
+                        docker push ${ECR_REGISTRY}/${params.SERVICE_NAME}:${IMAGE_TAG}
+                    """
+                }
+            }
+        }
+
+        // ── GITOPS DEPLOY ────────────────────────────────────────────────────
+
+        stage('Update Manifests Repo') {
+            when { expression { params.ACTION == 'Deploy' } }
+            steps {
+                container('builder') {
+                    sshagent(['github-ssh-key']) {
+                        sh """
+                            git clone ${MANIFESTS_REPO} manifests
+                            cd manifests
+
+                            # Update image tag for this service in the correct overlay
+                            sed -i 's|${ECR_REGISTRY}/${params.SERVICE_NAME}:.*|${ECR_REGISTRY}/${params.SERVICE_NAME}:${IMAGE_TAG}|g' \
+                              apps/base/${params.SERVICE_NAME}/deployment.yaml
+
+                            git config user.email "jenkins@underwater.com"
+                            git config user.name "Jenkins CI"
+                            git add apps/base/${params.SERVICE_NAME}/deployment.yaml
+                            git commit -m "ci(${ENVIRONMENT}): ${params.SERVICE_NAME} → ${IMAGE_TAG} [${env.GIT_COMMIT_SHORT}]"
+                            git push origin main
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Verify Flux Rollout') {
+            when { expression { params.ACTION == 'Deploy' } }
+            steps {
+                container('aws-tools') {
+                    sh """
+                        aws eks update-kubeconfig \
+                          --region ${AWS_REGION} \
+                          --name ${CLUSTER_NAME}
+
+                        curl -LO "https://dl.k8s.io/release/\$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                        chmod +x kubectl && mv kubectl /usr/local/bin/
+
+                        echo "Waiting for Flux to sync (~30s)..."
+                        sleep 30
+
+                        kubectl rollout status deployment/ecr-app-underwater \
+                          -n underwater \
+                          --timeout=120s
+                    """
+                }
+            }
+        }
+
+        // ── DESTROY ──────────────────────────────────────────────────────────
+
+        stage('Destroy Resources') {
+            when { expression { params.ACTION == 'Destroy' } }
+            steps {
+                input message: "Destroy ALL ${ENVIRONMENT} resources? This cannot be undone!", ok: 'Yes, Destroy'
                 script {
                     try {
-                        // Delete all Kubernetes resources in the namespace
-                        sh '''
-                            kubectl delete deployment ecr-app-underwater || true
-                            kubectl delete service ecr-app-underwater || true
-                            kubectl delete pods --all || true
-                        '''
-                        
-                        // Check if ECR repository exists before trying to delete images
-                        sh '''
-                            if aws ecr describe-repositories --repository-names underwater 2>/dev/null; then
-                                IMAGE_IDS=$(aws ecr list-images --repository-name underwater --query 'imageIds[*]' --output json)
-                                if [ "$IMAGE_IDS" != "[]" ]; then
-                                    aws ecr batch-delete-image \
-                                        --repository-name underwater \
-                                        --image-ids "$IMAGE_IDS" || true
+                        container('aws-tools') {
+                            sh """
+                                aws eks update-kubeconfig \
+                                  --region ${AWS_REGION} \
+                                  --name ${CLUSTER_NAME}
+
+                                curl -LO "https://dl.k8s.io/release/\$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                                chmod +x kubectl && mv kubectl /usr/local/bin/
+
+                                kubectl delete deployment ecr-app-underwater -n underwater --ignore-not-found=true
+                                kubectl delete service ecr-app-underwater -n underwater --ignore-not-found=true
+
+                                if aws ecr describe-repositories --repository-names ${params.SERVICE_NAME} 2>/dev/null; then
+                                    IMAGE_IDS=\$(aws ecr list-images \
+                                      --repository-name ${params.SERVICE_NAME} \
+                                      --query 'imageIds[*]' --output json)
+                                    if [ "\$IMAGE_IDS" != "[]" ]; then
+                                        aws ecr batch-delete-image \
+                                          --repository-name ${params.SERVICE_NAME} \
+                                          --image-ids "\$IMAGE_IDS"
+                                    fi
                                 fi
-                            else
-                                echo "ECR repository 'underwater' does not exist. Skipping image cleanup."
-                            fi
-                        '''
-                        
-                        // Destroy all Terraform-managed infrastructure
-                        sh '''
-                            terraform init
-                            terraform destroy -auto-approve
-                        '''
-                
-                        // Clean up any local Docker images
-                        sh '''
-                            docker rmi -f $(docker images 'underwater' -a -q) || true
-                            docker rmi -f $(docker images '*amazonaws.com/underwater*' -a -q) || true
-                        '''
+                            """
+                        }
+                        container('terraform') {
+                            sh """
+                                cd ${TF_DIR}
+                                terraform init
+                                terraform destroy -auto-approve
+                            """
+                        }
                     } catch (err) {
-                        echo "Error during cleanup: ${err}"
                         currentBuild.result = 'FAILURE'
-                        error("Cleanup failed: ${err}")
+                        error("Destroy failed: ${err}")
                     }
                 }
             }
-            post {
-                success {
-                    echo 'All resources have been successfully destroyed'
-                }
-                failure {
-                    echo 'Resource destruction failed - check the logs for details'
-                }
-            }
+        }
+    }
+
+    // ── NOTIFICATIONS ────────────────────────────────────────────────────────
+
+    post {
+        success {
+            echo "✅ [${ENVIRONMENT}] ${params.SERVICE_NAME}:${IMAGE_TAG} — Flux syncing to cluster"
+            // slackSend channel: '#deployments', color: 'good',
+            //   message: "✅ *${ENVIRONMENT}* | ${params.SERVICE_NAME}:${IMAGE_TAG} deployed | commit: ${env.GIT_COMMIT_SHORT}"
+        }
+        failure {
+            echo "❌ [${ENVIRONMENT}] Pipeline failed — ${params.SERVICE_NAME}"
+            // slackSend channel: '#deployments', color: 'danger',
+            //   message: "❌ *${ENVIRONMENT}* | ${params.SERVICE_NAME} build ${IMAGE_TAG} failed"
+        }
+        always {
+            archiveArtifacts artifacts: '**/*-report.json', allowEmptyArchive: true
+            cleanWs()
         }
     }
 }

@@ -1,98 +1,101 @@
-Octopus Underwater App
-This app is a simple web application that demonstrates CI/CD with Jenkins, Docker, AWS EKS, and Terraform.
-Prerequisites
-Jenkins Installation
-Follow this guide for Jenkins installation on AWS EC2:
-https://medium.com/@oladejit3/how-to-install-jenkins-on-aws-ec2-instance-4ec700f68948
-Required Tools
+# underwater-infra
 
-Terraform
+Terraform infrastructure and Jenkins pipeline for the Octopus Underwater App.
 
-Installation guide: https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli
+## Repository Structure
 
+```
+underwater-infra/
+├── modules/
+│   ├── vpc/          # VPC, subnets, NAT gateway
+│   ├── eks/          # EKS 1.34, addons (vpc-cni, ebs-csi, coredns)
+│   ├── irsa/         # IAM roles for Jenkins, Flux, VPC CNI, EBS CSI
+│   └── ecr/          # (reference — ECR lives in global/)
+├── environments/
+│   ├── dev/          # develop branch → dev cluster
+│   └── prod/         # release branch → prod cluster
+├── global/
+│   └── ecr/          # ECR repos shared between dev and prod
+├── Dockerfile        # nginx:1.25-alpine, hardened
+├── nginx.conf        # Security headers, SPA routing
+└── Jenkinsfile       # Full CI/CD pipeline with security scanning
+```
 
-Docker
+## Branch → Environment Mapping
 
-Installation guide: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-docker.html
+| Branch    | Environment | Image Tag       | EKS Cluster          |
+|-----------|-------------|-----------------|----------------------|
+| develop   | dev         | dev-{build}     | underwater-dev       |
+| release   | prod        | release-{build} | underwater-prod      |
 
+## First-Time Setup
 
-Node.js
-bashCopy# Install Node.js 16.x
-curl -sL https://rpm.nodesource.com/setup_16.x | sudo bash -
+### 1. Create S3 state bucket and DynamoDB lock table
+```bash
+aws s3api create-bucket \
+  --bucket izzy-terraform \
+  --region us-east-1
 
-# Install required dependencies
-sudo yum install gcc-c++ make
+aws s3api put-bucket-versioning \
+  --bucket izzy-terraform \
+  --versioning-configuration Status=Enabled
 
-# Install Node.js
-sudo yum install nodejs
+aws dynamodb create-table \
+  --table-name terraform-state-lock \
+  --attribute-definitions AttributeName=LockID,AttributeType=S \
+  --key-schema AttributeName=LockID,KeyType=HASH \
+  --billing-mode PAY_PER_REQUEST
+```
 
-# Verify installations
-node -v  # Should show v16.17.0
-npm -v   # Should show 8.15.0
+### 2. Create ECR repos (one time, shared)
+```bash
+cd global/ecr
+terraform init && terraform apply
+```
 
+### 3. Deploy dev environment
+```bash
+cd environments/dev
+terraform init
+terraform plan
+terraform apply
+```
 
-Jenkins Pipeline Configuration
-The project includes two pipeline options:
-1. Full Deployment Pipeline
+### 4. Bootstrap Flux onto dev cluster
+```bash
+aws eks update-kubeconfig --name underwater-dev --region us-east-1
 
-Cleans workspace
-Clones repository
-Sets up and verifies tools
-Deploys infrastructure with Terraform
-Builds and pushes Docker images
-Deploys to Kubernetes
+flux bootstrap github \
+  --owner=your-github-username \
+  --repository=underwater-manifests \
+  --branch=main \
+  --path=clusters/dev \
+  --personal
+```
 
-2. Parameterized Pipeline
-The pipeline now supports two modes of operation:
+### 5. Deploy prod environment
+```bash
+cd environments/prod
+terraform init
+terraform plan
+terraform apply
 
-Deploy: Runs the full deployment pipeline
-Destroy: Cleans up all resources
+# Bootstrap Flux on prod
+aws eks update-kubeconfig --name underwater-prod --region us-east-1
 
-To use the parameterized pipeline:
+flux bootstrap github \
+  --owner=your-github-username \
+  --repository=underwater-manifests \
+  --branch=main \
+  --path=clusters/prod \
+  --personal
+```
 
-Select 'Build with Parameters' in Jenkins
-Choose either 'Deploy' or 'Destroy' from the ACTION parameter
-Click 'Build'
+## Cost Estimate
 
-Resource Cleanup
-The destroy operation will:
+| Environment | Monthly Cost |
+|-------------|-------------|
+| Dev (SPOT nodes) | ~$80-100 |
+| Prod (ON_DEMAND) | ~$180-220 |
 
-Remove Kubernetes deployments and services
-Clean up ECR images
-Destroy all Terraform-managed infrastructure (EKS, ASG, etc.)
-Remove local Docker images
-
-Required Jenkins Credentials
-Set up the following credentials in Jenkins:
-
-AWS_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY
-
-Pipeline Stages
-groovyCopystages {
-    Clean workspace
-    Clone Repository
-    Set Terraform path
-    Verify Tools (Terraform, Docker, AWS)
-    Verify Other Tools (Git, NPM, Ansible)
-    Terraform Plan
-    Check Plan
-    Apply
-    Build Docker Image
-    Test
-    Push Docker Image to Registry
-    Deploy
-    Cleanup Resources (when destroying)
-}
-Important Notes
-
-Always review Terraform plans before applying
-The destroy operation is irreversible
-Cleanup can be run independently by selecting 'Destroy' in the pipeline parameters
-ECR images are removed during cleanup but the repository is preserved
-
-Cost Management
-
-ECR usage incurs storage and data transfer costs
-Remember to clean up resources when not in use
-Use the destroy pipeline to remove all infrastructure and avoid unnecessary charges
+> Tip: Run `terraform destroy` on dev when not in use to save cost.
