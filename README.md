@@ -33,11 +33,11 @@ underwater-infra/
 ### 1. Create S3 state bucket and DynamoDB lock table
 ```bash
 aws s3api create-bucket \
-  --bucket izzy-terraform \
+  --bucket devops-bucket-495905914919 \
   --region us-east-1
 
 aws s3api put-bucket-versioning \
-  --bucket izzy-terraform \
+  --bucket devops-bucket-495905914919 \
   --versioning-configuration Status=Enabled
 
 aws dynamodb create-table \
