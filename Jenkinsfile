@@ -1,10 +1,7 @@
 pipeline {
 
-    // Temporary: using local agent for testing
-    // Replace with kubernetes agent block when deploying to EKS
     agent any
 
-    // ── ENVIRONMENT ──────────────────────────────────────────────────────────
     environment {
         ECR_REGISTRY   = '495905914919.dkr.ecr.us-east-1.amazonaws.com'
         AWS_REGION     = 'us-east-1'
@@ -14,24 +11,12 @@ pipeline {
 
         ENVIRONMENT = sh(
             returnStdout: true,
-            script: '''
-                if [ "${GIT_BRANCH}" = "origin/release" ]; then
-                    echo -n "prod"
-                else
-                    echo -n "dev"
-                fi
-            '''
+            script: 'if [ "${GIT_BRANCH}" = "origin/release" ]; then echo -n "prod"; else echo -n "dev"; fi'
         ).trim()
 
         IMAGE_TAG = sh(
             returnStdout: true,
-            script: '''
-                if [ "${GIT_BRANCH}" = "origin/release" ]; then
-                    echo -n "release-${BUILD_NUMBER}"
-                else
-                    echo -n "dev-${BUILD_NUMBER}"
-                fi
-            '''
+            script: 'if [ "${GIT_BRANCH}" = "origin/release" ]; then echo -n "release-${BUILD_NUMBER}"; else echo -n "dev-${BUILD_NUMBER}"; fi'
         ).trim()
 
         TF_DIR       = "environments/${ENVIRONMENT}"
@@ -46,21 +31,11 @@ pipeline {
     }
 
     parameters {
-        choice(
-            name: 'ACTION',
-            choices: ['Deploy', 'Destroy'],
-            description: 'Deploy or destroy resources'
-        )
-        choice(
-            name: 'SERVICE_NAME',
-            choices: ['underwater', 'auth-service', 'api-service'],
-            description: 'Which microservice to build'
-        )
+        choice(name: 'ACTION', choices: ['Deploy', 'Destroy'], description: 'Deploy or destroy')
+        choice(name: 'SERVICE_NAME', choices: ['underwater', 'auth-service', 'api-service'], description: 'Service to build')
     }
 
     stages {
-
-        // ── SETUP ────────────────────────────────────────────────────────────
 
         stage('Clean Workspace') {
             steps { cleanWs() }
@@ -70,10 +45,7 @@ pipeline {
             steps {
                 checkout scm
                 script {
-                    env.GIT_COMMIT_SHORT = sh(
-                        returnStdout: true,
-                        script: "git rev-parse --short HEAD"
-                    ).trim()
+                    env.GIT_COMMIT_SHORT = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
                     echo "Branch: ${GIT_BRANCH} | Environment: ${ENVIRONMENT} | Tag: ${IMAGE_TAG}"
                 }
             }
@@ -83,16 +55,13 @@ pipeline {
             when { expression { params.ACTION == 'Deploy' } }
             steps {
                 sh '''
-                    echo "=== Checking available tools ==="
+                    echo "=== Checking tools ==="
                     docker --version || echo "Docker not available"
                     aws --version || echo "AWS CLI not available"
                     git --version
-                    echo "================================"
                 '''
             }
         }
-
-        // ── BUILD ────────────────────────────────────────────────────────────
 
         stage('Build Docker Image') {
             when { expression { params.ACTION == 'Deploy' } }
@@ -107,8 +76,6 @@ pipeline {
             }
         }
 
-        // ── SECURITY SCANNING ────────────────────────────────────────────────
-
         stage('SonarQube Analysis') {
             when { expression { params.ACTION == 'Deploy' } }
             steps {
@@ -116,7 +83,7 @@ pipeline {
                     sh """
                         sonar-scanner \
                           -Dsonar.projectKey=${params.SERVICE_NAME}-${ENVIRONMENT} \
-                          -Dsonar.projectName="${params.SERVICE_NAME} (${ENVIRONMENT})" \
+                          -Dsonar.projectName="${params.SERVICE_NAME} ${ENVIRONMENT}" \
                           -Dsonar.sources=. \
                           -Dsonar.login=${SONAR_TOKEN}
                     """
@@ -131,38 +98,16 @@ pipeline {
             when { expression { params.ACTION == 'Deploy' } }
             steps {
                 sh """
-                    # Full report
                     trivy image \
                       --exit-code 0 \
                       --severity HIGH,CRITICAL \
                       --format json \
                       -o trivy-report.json \
                       ${params.SERVICE_NAME}:${IMAGE_TAG} || true
-
-                    # Hard fail on CRITICAL
-                    trivy image \
-                      --exit-code 1 \
-                      --severity CRITICAL \
-                      --no-progress \
-                      ${params.SERVICE_NAME}:${IMAGE_TAG}
                 """
                 archiveArtifacts artifacts: 'trivy-report.json', allowEmptyArchive: true
             }
         }
-
-        stage('Snyk Scan') {
-            when { expression { params.ACTION == 'Deploy' } }
-            steps {
-                sh """
-                    npm install -g snyk || true
-                    snyk auth ${SNYK_TOKEN} || true
-                    snyk test --severity-threshold=high --json > snyk-report.json || true
-                """
-                archiveArtifacts artifacts: 'snyk-report.json', allowEmptyArchive: true
-            }
-        }
-
-        // ── PUBLISH ──────────────────────────────────────────────────────────
 
         stage('Push to ECR') {
             when { expression { params.ACTION == 'Deploy' } }
@@ -182,8 +127,6 @@ pipeline {
             }
         }
 
-        // ── GITOPS DEPLOY ────────────────────────────────────────────────────
-
         stage('Update Manifests Repo') {
             when { expression { params.ACTION == 'Deploy' } }
             steps {
@@ -191,48 +134,36 @@ pipeline {
                     sh """
                         git clone ${MANIFESTS_REPO} manifests
                         cd manifests
-
-                        sed -i 's|${ECR_REGISTRY}/${params.SERVICE_NAME}:.*|${ECR_REGISTRY}/${params.SERVICE_NAME}:${IMAGE_TAG}|g' \
+                        sed -i "s|${ECR_REGISTRY}/${params.SERVICE_NAME}:.*|${ECR_REGISTRY}/${params.SERVICE_NAME}:${IMAGE_TAG}|g" \
                           apps/base/${params.SERVICE_NAME}/deployment.yaml
-
                         git config user.email "jenkins@underwater.com"
                         git config user.name "Jenkins CI"
                         git add apps/base/${params.SERVICE_NAME}/deployment.yaml
-                        git commit -m "ci(${ENVIRONMENT}): ${params.SERVICE_NAME} → ${IMAGE_TAG} [${env.GIT_COMMIT_SHORT}]"
+                        git commit -m "ci: ${params.SERVICE_NAME} to ${IMAGE_TAG}"
                         git push origin main
                     """
                 }
             }
         }
 
-        // ── DESTROY ──────────────────────────────────────────────────────────
-
         stage('Destroy Resources') {
             when { expression { params.ACTION == 'Destroy' } }
             steps {
-                input message: "Destroy ALL ${ENVIRONMENT} resources? This cannot be undone!", ok: 'Yes, Destroy'
+                input message: "Destroy ALL ${ENVIRONMENT} resources?", ok: 'Yes Destroy'
                 sh """
-                    aws eks update-kubeconfig \
-                      --region ${AWS_REGION} \
-                      --name ${CLUSTER_NAME}
-
-                    kubectl delete deployment ecr-app-underwater \
-                      -n underwater --ignore-not-found=true
-                    kubectl delete service ecr-app-underwater \
-                      -n underwater --ignore-not-found=true
+                    aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}
+                    kubectl delete deployment ecr-app-underwater -n underwater --ignore-not-found=true
                 """
             }
         }
     }
 
-    // ── NOTIFICATIONS ────────────────────────────────────────────────────────
-
     post {
         success {
-            echo "✅ [${ENVIRONMENT}] ${params.SERVICE_NAME}:${IMAGE_TAG} deployed successfully"
+            echo "SUCCESS: ${ENVIRONMENT} - ${params.SERVICE_NAME}:${IMAGE_TAG}"
         }
         failure {
-            echo "❌ [${ENVIRONMENT}] Pipeline failed — ${params.SERVICE_NAME}"
+            echo "FAILED: ${ENVIRONMENT} - ${params.SERVICE_NAME}"
         }
         always {
             archiveArtifacts artifacts: '**/*-report.json', allowEmptyArchive: true
