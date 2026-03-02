@@ -1,6 +1,6 @@
 terraform {
   backend "s3" {
-    bucket         = "izzy-terraform"
+    bucket         = "devops-bucket-495905914919"
     key            = "global/ecr/terraform.tfstate"
     region         = "us-east-1"
     encrypt        = true
