@@ -1,5 +1,5 @@
 module "irsa" {
-  source = "../modules/irsa"
+  source = "../modules/eks-irsa"
 
   environment       = local.environment
   oidc_provider_arn = module.eks.oidc_provider_arn

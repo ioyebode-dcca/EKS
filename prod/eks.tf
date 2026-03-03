@@ -1,5 +1,5 @@
 module "eks" {
-  source = "../modules/eks"
+  source = "../modules/eks-cluster"
 
   environment           = local.environment
   cluster_name          = local.cluster_name

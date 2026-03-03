@@ -1,5 +1,5 @@
 module "vpc" {
-  source = "../modules/vpc"
+  source = "../modules/eks-vpc"
 
   environment          = local.environment
   cluster_name         = local.cluster_name
