@@ -1,5 +1,7 @@
-  # ── SECURITY GROUP RULES ─────────────────────────────────────────────────────
-  node_security_group_additional_rules = {
+# ── SECURITY GROUP RULES ─────────────────────────────────────────────────────
+# Controls network traffic between nodes
+locals {
+  node_sg_rules = {
     ingress_self_all = {
       description = "Node to node all ports"
       protocol    = "-1"
@@ -17,3 +19,4 @@
       cidr_blocks = ["0.0.0.0/0"]
     }
   }
+}

@@ -114,15 +114,20 @@ pipeline {
             steps {
                 sh """
                     aws ecr get-login-password --region ${AWS_REGION} | \
-                      docker login \
+                    docker login \
                         --username AWS \
                         --password-stdin \
                         ${ECR_REGISTRY}
 
                     docker tag ${params.SERVICE_NAME}:${IMAGE_TAG} \
-                      ${ECR_REGISTRY}/${params.SERVICE_NAME}:${IMAGE_TAG}
+                    ${ECR_REGISTRY}/${params.SERVICE_NAME}:${IMAGE_TAG}
 
                     docker push ${ECR_REGISTRY}/${params.SERVICE_NAME}:${IMAGE_TAG}
+
+                    docker tag ${params.SERVICE_NAME}:${IMAGE_TAG} \
+                    ${ECR_REGISTRY}/${params.SERVICE_NAME}:latest
+
+                    docker push ${ECR_REGISTRY}/${params.SERVICE_NAME}:latest
                 """
             }
         }
