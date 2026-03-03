@@ -30,6 +30,8 @@ services:
       - jenkins_home:/var/jenkins_home
       - /var/run/docker.sock:/var/run/docker.sock
       - ~/.aws:/root/.aws:ro
+      - ~/.ssh/jenkins_key:/root/.ssh/jenkins_key:ro
+      - ~/.ssh/jenkins_key:/var/jenkins_home/.ssh/jenkins_key:ro
     networks:
       - devops-net
     restart: unless-stopped

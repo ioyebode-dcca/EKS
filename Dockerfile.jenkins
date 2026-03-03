@@ -2,11 +2,37 @@ FROM jenkins/jenkins:lts
 
 USER root
 
-# Install Docker CLI
+# Install base tools
 RUN apt-get update && \
-    apt-get install -y docker.io awscli curl unzip git && \
+    apt-get install -y docker.io awscli curl unzip git wget openssh-client && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+# Install SonarQube Scanner
+RUN curl -Lo /tmp/sonar.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip && \
+    unzip /tmp/sonar.zip -d /usr/local/ && \
+    ln -s /usr/local/sonar-scanner-5.0.1.3006-linux/bin/sonar-scanner /usr/local/bin/sonar-scanner && \
+    rm /tmp/sonar.zip
+
+# Install Trivy
+RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+# Install kubectl
+RUN curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && \
+    chmod +x kubectl && mv kubectl /usr/local/bin/
+
+# Install Terraform
+RUN curl -Lo /tmp/terraform.zip https://releases.hashicorp.com/terraform/1.7.0/terraform_1.7.0_linux_amd64.zip && \
+    unzip /tmp/terraform.zip -d /usr/local/bin/ && \
+    rm /tmp/terraform.zip
+
+# Add GitHub to known_hosts
+RUN mkdir -p /root/.ssh && \
+    ssh-keyscan github.com >> /root/.ssh/known_hosts && \
+    chmod 644 /root/.ssh/known_hosts && \
+    mkdir -p /var/jenkins_home/.ssh && \
+    ssh-keyscan github.com >> /var/jenkins_home/.ssh/known_hosts && \
+    chmod 644 /var/jenkins_home/.ssh/known_hosts
 
 # Give jenkins user docker access
 RUN usermod -aG docker jenkins
