@@ -28,3 +28,9 @@ variable "alert_phone_number" {
   description = "Phone number for SMS alerts"
   sensitive   = true
 }
+
+variable "environment" {
+  type        = string
+  description = "Environment name"
+  default     = "dev"
+}

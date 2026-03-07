@@ -10,9 +10,10 @@ resource "aws_sns_topic_subscription" "sms" {
 }
 
 # ── EVENTBRIDGE RULE ─────────────────────────────────────────────────────────
+# Fires every 3 hours — reminder to destroy cluster if still running
 resource "aws_cloudwatch_event_rule" "cluster_runtime" {
   name                = "eks-runtime-3hr-dev"
-  description         = "Alert if EKS cluster is still running after 3 hours"
+  description         = "Reminder to destroy EKS cluster if still running"
   schedule_expression = "rate(3 hours)"
 }
 
@@ -22,7 +23,7 @@ resource "aws_cloudwatch_event_target" "sns" {
   arn       = aws_sns_topic.cluster_runtime_alert.arn
 
   input = jsonencode({
-    message = "⚠️ EKS cluster underwater-dev has been running for 3+ hours. Remember to destroy!"
+    message = "⚠️ EKS cluster underwater-dev is still running. Remember to destroy if not needed!"
   })
 }
 
