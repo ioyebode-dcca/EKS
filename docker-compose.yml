@@ -86,6 +86,7 @@ services:
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
+      - ./.secrets/sonarqube_password:/etc/prometheus/sonarqube_password:ro
     networks:
       - devops-net
     restart: unless-stopped
@@ -102,3 +103,4 @@ services:
     networks:
       - devops-net
     restart: unless-stopped
+
