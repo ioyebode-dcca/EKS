@@ -12,3 +12,23 @@ module "eks" {
   node_max_size       = 3
   node_desired_size   = 2
 }
+
+# ── CLUSTER ACCESS ENTRY ─────────────────────────────────────────────────────
+# Grants devops-admin user kubectl accessr
+resource "aws_eks_access_entry" "devops_admin" {
+  cluster_name  = module.eks.cluster_name
+  principal_arn = "arn:aws:iam::495905914919:user/devops-admin"
+  type          = "STANDARD"
+}
+
+resource "aws_eks_access_policy_association" "devops_admin" {
+  cluster_name  = module.eks.cluster_name
+  principal_arn = "arn:aws:iam::495905914919:user/devops-admin"
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
+
+  depends_on = [aws_eks_access_entry.devops_admin]
+}
