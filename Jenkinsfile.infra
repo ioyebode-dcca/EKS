@@ -128,6 +128,35 @@ pipeline {
             }
         }
 
+        stage('Cleanup Kubernetes Resources') {
+            when { expression { params.ACTION == 'Destroy' } }
+            steps {
+                sh """
+                    echo "=== Connecting to cluster ==="
+                    aws eks update-kubeconfig \
+                      --region ${AWS_REGION} \
+                      --name ${CLUSTER_NAME} || true
+
+                    echo "=== Removing ingress-nginx (deletes NLB) ==="
+                    helm uninstall ingress-nginx -n ingress-nginx || true
+                    kubectl delete namespace ingress-nginx --ignore-not-found=true
+
+                    echo "=== Removing monitoring stack (deletes EBS volumes) ==="
+                    helm uninstall prometheus -n monitoring || true
+                    kubectl delete namespace monitoring --ignore-not-found=true
+
+                    echo "=== Waiting 90s for AWS to fully delete NLB and EBS volumes ==="
+                    sleep 90
+
+                    echo "=== Verifying NLB is gone ==="
+                    aws elbv2 describe-load-balancers \
+                      --region ${AWS_REGION} \
+                      --query 'LoadBalancers[*].[LoadBalancerName,State.Code]' \
+                      --output table || true
+                """
+            }
+        }
+
         stage('Terraform Destroy') {
             when { expression { params.ACTION == 'Destroy' } }
             steps {
