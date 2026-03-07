@@ -22,3 +22,9 @@ variable "public_subnet_cidrs" {
   type        = list(string)
   description = "Public subnet CIDRs"
 }
+
+variable "alert_phone_number" {
+  type        = string
+  description = "Phone number for SMS alerts"
+  sensitive   = true
+}

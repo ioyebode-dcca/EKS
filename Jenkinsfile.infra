@@ -70,16 +70,19 @@ pipeline {
 
         stage('Terraform Plan') {
             steps {
-                sh """
-                    cd ${TF_DIR}
-                    terraform plan \
-                      -input=false \
-                      -out=tfplan
-                    terraform show -no-color tfplan > tfplan.txt
-                    echo "=== Plan Summary ==="
-                    tail -5 tfplan.txt
-                """
-                archiveArtifacts artifacts: "${TF_DIR}/tfplan.txt"
+                withCredentials([string(credentialsId: 'alert-phone-number', variable: 'PHONE_NUMBER')]) {
+                    sh """
+                        cd ${TF_DIR}
+                        terraform plan \
+                          -input=false \
+                          -var="alert_phone_number=${PHONE_NUMBER}" \
+                          -out=tfplan
+                        terraform show -no-color tfplan > tfplan.txt
+                        echo "=== Plan Summary ==="
+                        tail -5 tfplan.txt
+                    """
+                    archiveArtifacts artifacts: "${TF_DIR}/tfplan.txt"
+                }
             }
         }
 
@@ -100,10 +103,15 @@ pipeline {
         stage('Terraform Apply') {
             when { expression { params.ACTION == 'Apply' } }
             steps {
-                sh """
-                    cd ${TF_DIR}
-                    terraform apply -input=false tfplan
-                """
+                withCredentials([string(credentialsId: 'alert-phone-number', variable: 'PHONE_NUMBER')]) {
+                    sh """
+                        cd ${TF_DIR}
+                        terraform apply \
+                          -input=false \
+                          -var="alert_phone_number=${PHONE_NUMBER}" \
+                          tfplan
+                    """
+                }
             }
         }
 
@@ -124,11 +132,15 @@ pipeline {
         stage('Terraform Destroy') {
             when { expression { params.ACTION == 'Destroy' } }
             steps {
-                sh """
-                    cd ${TF_DIR}
-                    terraform init -reconfigure
-                    terraform destroy -auto-approve
-                """
+                withCredentials([string(credentialsId: 'alert-phone-number', variable: 'PHONE_NUMBER')]) {
+                    sh """
+                        cd ${TF_DIR}
+                        terraform init -reconfigure
+                        terraform destroy \
+                          -auto-approve \
+                          -var="alert_phone_number=${PHONE_NUMBER}"
+                    """
+                }
             }
         }
     }
