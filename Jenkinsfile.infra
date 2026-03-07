@@ -1,0 +1,148 @@
+pipeline {
+
+    agent any
+
+    environment {
+        AWS_REGION   = 'us-east-1'
+        TF_DIR       = "environments/${params.ENVIRONMENT}"
+        CLUSTER_NAME = "underwater-${params.ENVIRONMENT}"
+    }
+
+    options {
+        skipStagesAfterUnstable()
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 60, unit: 'MINUTES')
+    }
+
+    parameters {
+        choice(
+            name: 'ACTION',
+            choices: ['Plan', 'Apply', 'Destroy'],
+            description: 'Terraform action to perform'
+        )
+        choice(
+            name: 'ENVIRONMENT',
+            choices: ['dev', 'prod'],
+            description: 'Target environment'
+        )
+    }
+
+    stages {
+
+        stage('Clean Workspace') {
+            steps { cleanWs() }
+        }
+
+        stage('Checkout SCM') {
+            steps {
+                checkout scm
+                script {
+                    env.GIT_COMMIT_SHORT = sh(
+                        returnStdout: true,
+                        script: "git rev-parse --short HEAD"
+                    ).trim()
+                    echo "Branch: ${GIT_BRANCH} | Environment: ${params.ENVIRONMENT} | Action: ${params.ACTION}"
+                }
+            }
+        }
+
+        stage('Verify Tools') {
+            steps {
+                sh '''
+                    echo "=== Checking tools ==="
+                    terraform version
+                    aws --version
+                    aws sts get-caller-identity
+                '''
+            }
+        }
+
+        stage('Terraform Init') {
+            steps {
+                sh """
+                    cd ${TF_DIR}
+                    terraform init -reconfigure
+                    terraform validate
+                """
+            }
+        }
+
+        stage('Terraform Plan') {
+            steps {
+                sh """
+                    cd ${TF_DIR}
+                    terraform plan \
+                      -input=false \
+                      -out=tfplan
+                    terraform show -no-color tfplan > tfplan.txt
+                    echo "=== Plan Summary ==="
+                    tail -5 tfplan.txt
+                """
+                archiveArtifacts artifacts: "${TF_DIR}/tfplan.txt"
+            }
+        }
+
+        stage('Review Plan') {
+            when {
+                expression { params.ACTION == 'Apply' || params.ACTION == 'Destroy' }
+            }
+            steps {
+                script {
+                    def msg = params.ACTION == 'Destroy' \
+                        ? "DESTROY ALL ${params.ENVIRONMENT} resources? This cannot be undone!" \
+                        : "Apply Terraform plan to ${params.ENVIRONMENT}? Review tfplan.txt first."
+                    input message: msg, ok: params.ACTION
+                }
+            }
+        }
+
+        stage('Terraform Apply') {
+            when { expression { params.ACTION == 'Apply' } }
+            steps {
+                sh """
+                    cd ${TF_DIR}
+                    terraform apply -input=false tfplan
+                """
+            }
+        }
+
+        stage('Update kubeconfig') {
+            when { expression { params.ACTION == 'Apply' } }
+            steps {
+                sh """
+                    aws eks update-kubeconfig \
+                      --region ${AWS_REGION} \
+                      --name ${CLUSTER_NAME}
+
+                    echo "=== Cluster Nodes ==="
+                    kubectl get nodes
+                """
+            }
+        }
+
+        stage('Terraform Destroy') {
+            when { expression { params.ACTION == 'Destroy' } }
+            steps {
+                sh """
+                    cd ${TF_DIR}
+                    terraform init -reconfigure
+                    terraform destroy -auto-approve
+                """
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "SUCCESS: ${params.ACTION} on ${params.ENVIRONMENT} completed"
+        }
+        failure {
+            echo "FAILED: ${params.ACTION} on ${params.ENVIRONMENT} failed"
+        }
+        always {
+            archiveArtifacts artifacts: '**/tfplan.txt', allowEmptyArchive: true
+            cleanWs()
+        }
+    }
+}
