@@ -51,7 +51,7 @@ resource "null_resource" "set_default_storage_class" {
   provisioner "local-exec" {
     command = <<-EOT
       aws eks update-kubeconfig \
-        --region ${var.aws_region} \
+        --region ${var.region} \
         --name ${module.eks.cluster_name}
 
       kubectl patch storageclass gp2 \
