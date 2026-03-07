@@ -1,6 +1,6 @@
-# Underwater DevSecOps Infrastructure (EKS Repo)
+# Underwater Infrastructure (EKS Repo)
 
-A complete DevSecOps pipeline running on AWS EKS with GitOps deployment via Flux. This repo contains all infrastructure code, application code, and the CI/CD pipeline definition.
+This repository contains all infrastructure code for the Underwater project. Application code lives in `underwater-app` and Kubernetes manifests live in `underwater-manifests`.
 
 ---
 
@@ -8,52 +8,64 @@ A complete DevSecOps pipeline running on AWS EKS with GitOps deployment via Flux
 
 ```
 EKS/
-├── Dockerfile              # Application container (nginx)
-├── Dockerfile.jenkins      # Custom Jenkins image with DevSecOps tools
-├── Jenkinsfile             # CI/CD pipeline definition
-├── docker-compose.yml      # Local DevSecOps stack
-├── prometheus.yml          # Prometheus scrape config
-├── nginx.conf              # Nginx web server config
-├── static/                 # Application static files
+├── Dockerfile.jenkins       # Custom Jenkins image with DevSecOps tools
+├── Jenkinsfile.infra        # Infrastructure pipeline (Plan/Apply/Destroy)
+├── docker-compose.yml       # Local DevSecOps stack
+├── prometheus.yml           # Local Prometheus scrape config
 │
-├── dev/                    # Dev environment Terraform
-│   ├── backend.tf          # S3 state backend config
-│   ├── locals.tf           # Environment variables
-│   ├── providers.tf        # AWS, Kubernetes, Helm providers
-│   ├── variables.tf        # Variable definitions
-│   ├── terraform.tfvars    # Dev values (SPOT nodes, 2 AZs)
-│   ├── vpc.tf              # VPC module call
-│   ├── eks.tf              # EKS module call
-│   ├── irsa.tf             # IRSA module call
-│   └── outputs.tf          # Output values
-│
-├── prod/                   # Prod environment Terraform (same structure)
+├── environments/
+│   ├── dev/                 # Dev environment Terraform
+│   │   ├── backend.tf       # S3 state backend config
+│   │   ├── providers.tf     # AWS provider
+│   │   ├── variables.tf     # Variable definitions
+│   │   ├── terraform.tfvars # Dev values (SPOT nodes, 2 AZs)
+│   │   ├── vpc.tf           # VPC module call
+│   │   ├── eks.tf           # EKS cluster + access entries
+│   │   ├── irsa.tf          # IRSA module call
+│   │   ├── sns.tf           # SNS SMS alert (3hr runtime warning)
+│   │   └── outputs.tf       # Output values
+│   └── prod/                # Prod environment (same structure)
 │
 ├── modules/
-│   ├── eks-cluster/        # EKS control plane + node groups
-│   │   ├── eks.tf          # EKS cluster (references locals)
-│   │   ├── node_group.tf   # Node group config (SPOT/ON_DEMAND)
-│   │   ├── sg.tf           # Security group rules
-│   │   ├── addons.tf       # VPC CNI, CoreDNS, EBS CSI
-│   │   ├── outputs.tf      # Cluster outputs
-│   │   └── variables.tf    # Module variables
-│   │
-│   ├── eks-irsa/           # IAM Roles for Service Accounts
-│   │   ├── main.tf         # Jenkins, Flux, VPC CNI, EBS CSI roles
+│   ├── eks-cluster/         # EKS control plane + node groups
+│   │   ├── eks.tf           # EKS cluster
+│   │   ├── node_group.tf    # Node group + ECR/EBS IAM policies
+│   │   ├── sg.tf            # Security group rules
+│   │   ├── addons.tf        # VPC CNI, CoreDNS, EBS CSI driver
 │   │   ├── outputs.tf
 │   │   └── variables.tf
-│   │
-│   ├── eks-vpc/            # VPC, subnets, NAT Gateway
-│   │   ├── main.tf
-│   │   ├── outputs.tf
-│   │   └── variables.tf
-│   │
-│   └── ecr/                # ECR repositories
-│       └── main.tf
+│   ├── eks-irsa/            # IAM Roles for Service Accounts
+│   ├── eks-vpc/             # VPC, subnets, NAT Gateway
+│   └── ecr/                 # ECR repositories
 │
 └── global/
-    └── ecr/                # Shared ECR repos (applied once)
-        └── main.tf
+    └── ecr/                 # Shared ECR repos (applied once, never destroyed)
+```
+
+---
+
+## Three Repo Structure
+
+```
+EKS (this repo)          → Terraform infrastructure + infra-pipeline
+underwater-app           → Application code + Dockerfile + app pipeline
+underwater-manifests     → Flux/Kubernetes manifests (GitOps)
+```
+
+---
+
+## Two Jenkins Pipelines
+
+```
+infra-pipeline           → Plan/Apply/Destroy EKS cluster
+                           triggered manually
+                           watches: EKS repo, develop branch
+                           script: Jenkinsfile.infra
+
+underwater-pipeline      → Build/scan/push Docker image
+                           triggered automatically on code push
+                           watches: underwater-app repo, develop branch
+                           script: Jenkinsfile
 ```
 
 ---
@@ -62,7 +74,7 @@ EKS/
 
 ### Tools Required
 
-Install all tools in WSL (Ubuntu 22.04):
+Install in WSL (Ubuntu 22.04):
 
 ```bash
 # AWS CLI
@@ -94,11 +106,10 @@ sudo apt install docker-compose-plugin -y
 ### AWS Setup
 
 ```bash
-# Configure AWS CLI with your IAM user credentials
 aws configure
-# AWS Access Key ID: <your-access-key>
+# AWS Access Key ID:     <your-access-key>
 # AWS Secret Access Key: <your-secret-key>
-# Default region: us-east-1
+# Default region:        us-east-1
 # Default output format: json
 
 # Verify
@@ -110,7 +121,7 @@ aws sts get-caller-identity
 ## Step 1 — Create Terraform State Backend (One Time)
 
 ```bash
-# Create S3 bucket for Terraform state
+# Create S3 bucket
 aws s3api create-bucket \
   --bucket devops-bucket-<your-account-id> \
   --region us-east-1
@@ -135,10 +146,7 @@ aws dynamodb create-table \
   --region us-east-1
 ```
 
-Update `dev/backend.tf` and `prod/backend.tf` with your bucket name:
-```hcl
-bucket = "devops-bucket-<your-account-id>"
-```
+Update `environments/dev/backend.tf` with your bucket name.
 
 ---
 
@@ -150,32 +158,30 @@ terraform init
 terraform apply
 ```
 
-This creates three ECR repositories:
-- `underwater`
-- `auth-service`
-- `api-service`
+Creates three ECR repositories: `underwater`, `auth-service`, `api-service`.
+
+> ⚠️ Never run `terraform destroy` in global/ecr — ECR repos persist across cluster destroy/apply cycles.
 
 ---
 
 ## Step 3 — Start Local DevSecOps Stack
 
 ```bash
-# Fix WSL memory settings (required for SonarQube)
+# Required for SonarQube
 sudo sysctl -w vm.max_map_count=262144
-echo "vm.max_map_count=262144" | sudo tee -a /etc/sysctl.conf
 
-# Start all services
+# Start stack
 docker compose up -d
 
-# Verify all running
+# Verify
 docker compose ps
 ```
 
-Services available:
+Services:
 ```
 Jenkins     → http://localhost:8080
-SonarQube   → http://localhost:9000  (admin/admin on first login)
-Grafana     → http://localhost:3000  (admin/admin)
+SonarQube   → http://localhost:9000
+Grafana     → http://localhost:3000  (monitors Jenkins/SonarQube)
 Prometheus  → http://localhost:9090
 ```
 
@@ -186,76 +192,95 @@ Prometheus  → http://localhost:9090
 docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
 ```
 
-1. Open `http://localhost:8080` and paste the password
-2. Click **Install suggested plugins**
+1. Open `http://localhost:8080` → paste password
+2. Install suggested plugins
 3. Create admin user
-4. Install additional plugins:
-   - Docker Pipeline
-   - Kubernetes
-   - Amazon ECR
-   - AWS Credentials
-   - SonarQube Scanner
-   - SSH Agent
-   - Blue Ocean
-
-### SonarQube Setup
-
-1. Open `http://localhost:9000` → login `admin/admin` → change password
-2. Generate token: **My Account → Security → Generate Token**
-   - Name: `jenkins-sonar`, Type: `Global Analysis Token`
-3. Create webhook: **Administration → Configuration → Webhooks → Create**
-   - Name: `jenkins`, URL: `http://jenkins:8080/sonarqube-webhook/`
-4. Create project: **Create Project → Local → underwater**
+4. Install additional plugins: Docker Pipeline, Kubernetes, Amazon ECR, AWS Credentials, SonarQube Scanner, SSH Agent, Blue Ocean, Prometheus metrics
 
 ### Jenkins Credentials Setup
 
-Go to **Manage Jenkins → Credentials → System → Global credentials → Add Credentials**:
+Go to **Manage Jenkins → Credentials → System → Global → Add Credentials**:
 
 | ID | Kind | Value |
 |----|------|-------|
 | `sonar-token` | Secret text | SonarQube token |
-| `github-token` | Secret text | GitHub Personal Access Token |
+| `github-token` | Username with password | GitHub username + PAT |
 | `github-ssh-key` | SSH Username with private key | Contents of `~/.ssh/jenkins_key` |
-| `snyk-token` | Secret text | Snyk auth token from app.snyk.io |
+| `snyk-token` | Secret text | Snyk auth token |
+| `alert-phone-number` | Secret text | Phone number e.g. +12345678900 |
 
-### Jenkins SonarQube Server Config
+> ⚠️ `github-token` must be **Username with password** type — Secret text does not appear in SCM credential dropdowns.
 
-Go to **Manage Jenkins → System → SonarQube servers**:
+### SonarQube Setup
+
+1. Open `http://localhost:9000` → login `admin/admin` → change password
+2. Generate token: **My Account → Security → Generate Token** (Global Analysis Token)
+3. Create webhook: **Administration → Configuration → Webhooks → Create**
+   - Name: `jenkins`, URL: `http://jenkins:8080/sonarqube-webhook/`
+4. Create project: **Create Project → Local → underwater**
+
+### Prometheus Metrics Plugin
+
 ```
-✅ Environment variables
-Name:               SonarQube
-Server URL:         http://sonarqube:9000
-Server auth token:  sonar-token
+Manage Jenkins → Plugins → Available
+→ Search: Prometheus metrics → Install
+→ Manage Jenkins → System → Prometheus
+→ Uncheck: Enable authentication for prometheus end-point
+→ Apply → Save
 ```
 
-### Jenkins SonarQube Scanner Tool
-
-Go to **Manage Jenkins → Tools → SonarQube Scanner**:
-```
-Name:                SonarScanner
-✅ Install automatically
-```
-
-### SSH Key Setup
+### SSH Key for Manifests Repo
 
 ```bash
-# Generate SSH key for Jenkins → GitHub access
 ssh-keygen -t ed25519 -C "jenkins@underwater" -f ~/.ssh/jenkins_key -N ""
-
-# Add public key to GitHub
 cat ~/.ssh/jenkins_key.pub
-# GitHub → underwater-manifests → Settings → Deploy Keys → Add Deploy Key
+# GitHub → underwater-manifests → Settings → Deploy Keys → Add
 # ✅ Allow write access
 ```
 
-### Create Pipeline Job
+### SonarQube Secrets File
 
-**Jenkins → New Item → Pipeline**:
+```bash
+mkdir -p ~/code/EKS/.secrets
+echo -n "your-sonarqube-password" > ~/code/EKS/.secrets/sonarqube_password
+echo ".secrets/" >> ~/code/EKS/.gitignore
 ```
+
+---
+
+## Step 4 — Create Jenkins Pipelines
+
+### infra-pipeline
+
+```
+Jenkins → New Item → Pipeline
+
+Name: infra-pipeline
+
+Parameters:
+  ACTION:      Choice → Plan, Apply, Destroy
+  ENVIRONMENT: Choice → dev, prod
+
+Pipeline:
+  Definition:  Pipeline script from SCM
+  SCM:         Git
+  Repository:  https://github.com/<username>/EKS.git
+  Credentials: github-token
+  Branch:      */develop
+  Script Path: Jenkinsfile.infra
+
+→ Apply → Save
+```
+
+### underwater-pipeline
+
+```
+Jenkins → New Item → Pipeline
+
 Name: underwater-pipeline
 
 Parameters:
-  ACTION:       Choice → Deploy, Destroy
+  ACTION:       Choice → Deploy
   SERVICE_NAME: Choice → underwater, auth-service, api-service
 
 Build Triggers:
@@ -264,69 +289,154 @@ Build Triggers:
 Pipeline:
   Definition:  Pipeline script from SCM
   SCM:         Git
-  Repository:  https://github.com/<your-username>/EKS.git
+  Repository:  https://github.com/<username>/underwater-app.git
   Credentials: github-token
   Branch:      */develop
   Script Path: Jenkinsfile
+
+→ Apply → Save
 ```
 
 ---
 
-## Step 4 — Create Dev EKS Cluster
+## Step 5 — Deploy EKS Cluster via infra-pipeline
 
-> ⚠️ **Cost Warning**: EKS costs ~$4/day. Destroy when not in use.
+> ⚠️ Cost Warning: EKS costs ~$4/day. Destroy when not in use.
 
-```bash
-cd dev
+```
+Jenkins → infra-pipeline → Build with Parameters
+ACTION:      Plan       ← review changes first
+ENVIRONMENT: dev
+→ Build
 
-# Initialize
-terraform init
-
-# Review what will be created
-terraform plan
-
-# Create cluster (~20 minutes)
-terraform apply
+# Review tfplan.txt in build artifacts, then:
+ACTION:      Apply
+ENVIRONMENT: dev
+→ Build → click Apply when prompted
 ```
 
-**Resources created:**
+Resources created:
 ```
-VPC with public/private subnets across 2 AZs
-NAT Gateway for private subnet internet access
-EKS control plane (Kubernetes 1.34)
-Managed node group (2x t3.medium SPOT instances)
-IRSA roles for Jenkins, Flux, VPC CNI, EBS CSI
-Security groups
-```
-
----
-
-## Step 5 — Connect kubectl to Cluster
-
-```bash
-aws eks update-kubeconfig \
-  --region us-east-1 \
-  --name underwater-dev
-
-# Verify nodes are ready
-kubectl get nodes
+VPC                      → 2 public + 2 private subnets across 2 AZs
+NAT Gateway              → private subnet internet access
+EKS cluster              → Kubernetes 1.34, underwater-dev
+Node group               → 2x t3.medium SPOT instances
+IAM roles                → node group ECR + EBS CSI policies
+EKS access entry         → devops-admin cluster admin access
+EBS CSI driver addon     → persistent volume support
+Default storage class    → gp2 set as default for PVC provisioning
+SNS topic + subscription → SMS alert after 3 hours runtime
+EventBridge rule         → triggers SNS every 3 hours
 ```
 
 ---
 
-## Step 6 — Bootstrap Flux (GitOps)
+## Step 6 — Bootstrap Flux
+
+Run after infra-pipeline Apply completes:
 
 ```bash
-# Bootstrap Flux on dev cluster
+# Pull latest manifests
+cd ~/code/underwater-manifests
+git pull origin main --rebase
+
+# Bootstrap Flux with image automation
 flux bootstrap github \
   --owner=<your-github-username> \
   --repository=underwater-manifests \
   --branch=main \
   --path=clusters/dev \
-  --personal
+  --personal \
+  --components-extra=image-reflector-controller,image-automation-controller
 
-# Verify Flux is running
-kubectl get pods -n flux-system
+# Pull after bootstrap (Flux writes to repo)
+git pull origin main --rebase
+```
+
+Flux automatically deploys:
+```
+underwater app           → from apps/base/underwater/
+kube-prometheus-stack    → Prometheus + Grafana on cluster
+ingress-nginx            → AWS NLB for public app access
+```
+
+---
+
+## Step 7 — Deploy App via underwater-pipeline
+
+```
+Jenkins → underwater-pipeline → Build with Parameters
+ACTION:       Deploy
+SERVICE_NAME: underwater
+→ Build
+```
+
+Access the app:
+```bash
+# Get public URL
+kubectl get svc -n ingress-nginx
+
+# Open in browser (no port-forward needed)
+http://<elb-hostname>
+```
+
+---
+
+## Daily Workflow
+
+### Morning (start)
+```bash
+# Start local stack
+cd ~/code/EKS
+sudo sysctl -w vm.max_map_count=262144
+docker compose up -d
+
+# Deploy cluster
+infra-pipeline → Plan → Apply  (~20 mins)
+
+# Bootstrap Flux (needed after every cluster recreate)
+flux bootstrap github \
+  --owner=ioyebode-dcca \
+  --repository=underwater-manifests \
+  --branch=main \
+  --path=clusters/dev \
+  --personal \
+  --components-extra=image-reflector-controller,image-automation-controller
+
+# Pull after bootstrap
+cd ~/code/underwater-manifests && git pull origin main --rebase
+
+# Deploy app
+underwater-pipeline → Deploy → underwater
+```
+
+### Evening (destroy)
+```bash
+# Destroy cluster via pipeline
+infra-pipeline → Destroy → dev
+
+# Stop local stack
+docker compose down
+```
+
+---
+
+## What Gets Destroyed vs Preserved
+
+```
+DESTROYED by infra-pipeline Destroy:
+  EKS cluster + nodes
+  VPC + subnets + NAT Gateway
+  IAM roles
+  SNS topic + EventBridge rule
+  EBS volumes (PVCs)
+
+PRESERVED (never destroyed):
+  ECR repositories        → global/ecr, separate state
+  Docker images in ECR    → persist across cluster cycles
+  S3 state bucket         → created manually
+  DynamoDB lock table     → created manually
+  Local Jenkins/SonarQube → docker compose, separate from cluster
 ```
 
 ---
@@ -334,68 +444,52 @@ kubectl get pods -n flux-system
 ## Branch Strategy
 
 ```
-main      → protected, no direct pushes, PR + approval required
-develop   → active development, triggers dev deployments
-release   → triggers prod deployments, PR + approval required
+main      → protected, PR + approval required
+develop   → active development, infra-pipeline and app-pipeline watch this
+release   → prod deployments
 
 Workflow:
-feature/* → PR → develop → dev pipeline → dev EKS cluster
-develop   → PR → release → prod pipeline → prod EKS cluster
+feature/* → PR → develop → pipelines trigger → dev cluster
+develop   → PR → release → prod pipeline → prod cluster
 ```
 
 ---
 
-## Pipeline Stages
+## Monitoring
+
+Two Grafana instances:
 
 ```
-1. Checkout SCM          Pull code from GitHub
-2. Clean Workspace       Remove old build artifacts
-3. Verify Tools          Check docker, aws, git available
-4. Build Docker Image    Build container from Dockerfile
-5. SonarQube Analysis    Scan source code for vulnerabilities
-6. Trivy Scan            Scan Docker image for CVEs
-7. Push to ECR           Upload image to AWS ECR
-8. Update Manifests Repo Update image tag in underwater-manifests
-   (Flux detects change and deploys to EKS automatically)
+Local Docker Grafana (http://localhost:3000):
+  → monitors Jenkins build metrics
+  → starts with docker compose up
+
+EKS Grafana (kubectl port-forward):
+  kubectl port-forward svc/prometheus-grafana 3001:80 -n monitoring
+  → http://localhost:3001  (admin/admin)
+  → monitors pods, nodes, deployments
+  → deployed automatically by Flux
 ```
 
----
-
-## Destroy Resources
-
-```bash
-# Destroy dev EKS cluster (saves ~$4/day)
-cd dev
-terraform destroy
-
-# Stop local Docker stack
-docker compose down
-
-# Clean ECR images (optional)
-aws ecr batch-delete-image \
-  --repository-name underwater \
-  --region us-east-1 \
-  --image-ids "$(aws ecr list-images \
-    --repository-name underwater \
-    --query 'imageIds[*]' \
-    --output json)"
+Pre-built Kubernetes dashboards:
 ```
-
-> **Note**: S3 bucket, DynamoDB table, and ECR repositories have negligible cost (~$0.05/month) and can be left running.
+Dashboards → Kubernetes / Compute Resources / Cluster
+Dashboards → Kubernetes / Compute Resources / Namespace → underwater
+Dashboards → Kubernetes / Nodes
+```
 
 ---
 
 ## Cost Summary
 
-| Resource | Cost When Running | Cost When Destroyed |
-|----------|------------------|---------------------|
-| EKS Control Plane | $0.10/hr ($72/mo) | $0 |
-| EC2 Nodes (2x t3.medium SPOT) | ~$0.03/hr ($22/mo) | $0 |
-| NAT Gateway | $0.045/hr ($32/mo) | $0 |
+| Resource | Running | Destroyed |
+|----------|---------|-----------|
+| EKS Control Plane | $0.10/hr | $0 |
+| 2x t3.medium SPOT | ~$0.03/hr | $0 |
+| NAT Gateway | $0.045/hr | $0 |
 | ECR Images | ~$0.05/mo | ~$0.05/mo |
-| S3 State Bucket | ~$0.001/mo | ~$0.001/mo |
-| DynamoDB Lock Table | ~$0.001/mo | ~$0.001/mo |
-| **Total** | **~$126/mo** | **~$0.05/mo** |
+| S3 + DynamoDB | ~$0.001/mo | ~$0.001/mo |
+| **Total active** | **~$4/day** | **~$0.05/mo** |
 
 ---
 
@@ -405,30 +499,49 @@ aws ecr batch-delete-image \
 ```bash
 sudo sysctl -w vm.max_map_count=262144
 docker compose restart sonarqube
-docker logs sonarqube -f  # wait for "SonarQube is operational"
 ```
 
-**Docker not found in Jenkins:**
+**Prometheus secrets not mounting:**
 ```bash
-docker exec -u root jenkins bash -c "apt-get update && apt-get install -y docker.io"
+# Bring down and up (restart doesn't remount volumes)
+docker compose down prometheus
+docker compose up -d prometheus
+docker exec prometheus ls /etc/prometheus/
 ```
 
-**AWS credentials not working in Jenkins:**
-```bash
-# Verify credentials mount
-docker exec jenkins aws sts get-caller-identity
+**Terraform: module directory not found:**
+```
+After moving dev/ to environments/dev/ module paths changed.
+Fix: update source = "../modules/" to "../../modules/" in all .tf files
+     sed -i 's|../modules/|../../modules/|g' environments/dev/*.tf
 ```
 
-**SSH host key verification failed:**
-```bash
-docker exec -u root jenkins bash -c "
-  ssh-keyscan github.com >> /root/.ssh/known_hosts
-  ssh-keyscan github.com >> /var/jenkins_home/.ssh/known_hosts
-"
+**Terraform: Can't set variables when applying a saved plan:**
+```
+Remove -var flags from terraform apply — variables are baked into tfplan during plan.
+Only pass -var flags to terraform plan, not apply.
 ```
 
-**Terraform cycle error:**
+**kubectl: server has asked for credentials:**
 ```
-Remove vpc_cni_irsa_role_arn and ebs_csi_irsa_role_arn 
-from dev/eks.tf — IRSA roles are applied after cluster creation
+IAM access entry not created yet.
+Fix: add aws_eks_access_entry and aws_eks_access_policy_association
+     to environments/dev/eks.tf (already in current config)
+```
+
+**Monitoring pods Pending (PVC unbound):**
+```
+Node IAM role missing EBS permissions or gp2 not default storage class.
+Fix: AmazonEBSCSIDriverPolicy is attached in modules/eks-cluster/node_group.tf
+     gp2 default class set via null_resource in environments/dev/eks.tf
+     If still stuck: kubectl patch storageclass gp2 \
+       -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+     Then: kubectl delete pvc -n monitoring --all
+```
+
+**Git push rejected (fetch first):**
+```
+Flux or Jenkins pushed to repo while you were working.
+Fix: git pull origin main --rebase
+     git push origin main
 ```
