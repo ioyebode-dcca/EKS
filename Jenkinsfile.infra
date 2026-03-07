@@ -132,10 +132,22 @@ pipeline {
             when { expression { params.ACTION == 'Destroy' } }
             steps {
                 sh """
+                    echo "=== Checking if cluster exists ==="
+                    CLUSTER_EXISTS=\$(aws eks describe-cluster \
+                      --name ${CLUSTER_NAME} \
+                      --region ${AWS_REGION} \
+                      --query 'cluster.status' \
+                      --output text 2>/dev/null || echo "NOT_FOUND")
+
+                    if [ "\$CLUSTER_EXISTS" = "NOT_FOUND" ]; then
+                        echo "Cluster ${CLUSTER_NAME} not found — skipping Kubernetes cleanup"
+                        exit 0
+                    fi
+
                     echo "=== Connecting to cluster ==="
                     aws eks update-kubeconfig \
                       --region ${AWS_REGION} \
-                      --name ${CLUSTER_NAME} || true
+                      --name ${CLUSTER_NAME}
 
                     echo "=== Removing ingress-nginx (deletes NLB) ==="
                     helm uninstall ingress-nginx -n ingress-nginx || true
