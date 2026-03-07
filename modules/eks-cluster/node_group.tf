@@ -44,3 +44,9 @@ resource "aws_iam_role_policy_attachment" "nodes_ecr_readonly" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
   role       = module.eks.eks_managed_node_groups["main"].iam_role_name
 }
+# ── EBS CSI POLICY FOR NODES ─────────────────────────────────────────────────
+# Allows nodes to create/manage EBS volumes for PVCs
+resource "aws_iam_role_policy_attachment" "nodes_ebs_csi" {
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+  role       = module.eks.eks_managed_node_groups["main"].iam_role_name
+}
