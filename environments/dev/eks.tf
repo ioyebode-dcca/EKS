@@ -44,3 +44,22 @@ resource "aws_eks_addon" "ebs_csi" {
     module.eks
   ]
 }
+
+# ── DEFAULT STORAGE CLASS ────────────────────────────────────────────────────
+# Patches gp2 to be the default storage class for PVC provisioning
+resource "null_resource" "set_default_storage_class" {
+  provisioner "local-exec" {
+    command = <<-EOT
+      aws eks update-kubeconfig \
+        --region ${var.aws_region} \
+        --name ${module.eks.cluster_name}
+
+      kubectl patch storageclass gp2 \
+        -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+    EOT
+  }
+
+  depends_on = [
+    aws_eks_addon.ebs_csi
+  ]
+}
