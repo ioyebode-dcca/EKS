@@ -46,7 +46,6 @@ resource "aws_eks_addon" "ebs_csi" {
 }
 
 # ── DEFAULT STORAGE CLASS ────────────────────────────────────────────────────
-# Patches gp2 to be the default storage class for PVC provisioning
 resource "null_resource" "set_default_storage_class" {
   provisioner "local-exec" {
     command = <<-EOT
@@ -61,5 +60,30 @@ resource "null_resource" "set_default_storage_class" {
 
   depends_on = [
     aws_eks_addon.ebs_csi
+  ]
+}
+
+# ── FLUX IRSA ANNOTATION ─────────────────────────────────────────────────────
+# Annotates image-reflector-controller ServiceAccount with IRSA role
+# Required every cluster recreate so Flux can scan ECR tags
+resource "null_resource" "flux_irsa_annotation" {
+  provisioner "local-exec" {
+    command = <<-EOT
+      aws eks update-kubeconfig \
+        --region ${var.region} \
+        --name ${module.eks.cluster_name}
+
+      kubectl annotate serviceaccount image-reflector-controller \
+        -n flux-system \
+        eks.amazonaws.com/role-arn=${module.irsa.flux_irsa_role_arn} \
+        --overwrite || true
+
+      kubectl rollout restart deployment/image-reflector-controller \
+        -n flux-system || true
+    EOT
+  }
+
+  depends_on = [
+    null_resource.set_default_storage_class
   ]
 }
