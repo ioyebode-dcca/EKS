@@ -35,6 +35,12 @@ RUN curl -Lo /tmp/terraform.zip https://releases.hashicorp.com/terraform/1.7.0/t
     unzip /tmp/terraform.zip -d /usr/local/bin/ && \
     rm /tmp/terraform.zip
 
+# Install Node.js
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 # Add GitHub to known_hosts
 RUN mkdir -p /root/.ssh && \
     ssh-keyscan github.com >> /root/.ssh/known_hosts && \
