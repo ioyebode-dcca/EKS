@@ -17,10 +17,17 @@ RUN curl -Lo /tmp/sonar.zip https://binaries.sonarsource.com/Distribution/sonar-
 # Install Trivy
 RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
 
+# Install Dockle
+RUN VERSION=$(curl -s https://api.github.com/repos/goodwithtech/dockle/releases/latest | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/') && \
+    curl -Lo /tmp/dockle.tar.gz https://github.com/goodwithtech/dockle/releases/download/v${VERSION}/dockle_${VERSION}_Linux-64bit.tar.gz && \
+    tar -xzf /tmp/dockle.tar.gz -C /usr/local/bin dockle && \
+    rm /tmp/dockle.tar.gz
+
 # Install kubectl
 RUN curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && \
     chmod +x kubectl && mv kubectl /usr/local/bin/
 
+# Install Helm
 RUN curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
 # Install Terraform
