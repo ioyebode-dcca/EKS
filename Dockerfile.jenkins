@@ -55,4 +55,8 @@ RUN mkdir -p /root/.ssh && \
 # Give jenkins user docker access
 RUN usermod -aG docker jenkins
 
+RUN curl -fsSL https://static.snyk.io/cli/latest/snyk-linux -o /usr/local/bin/snyk && chmod +x /usr/local/bin/snyk
+RUN curl -fsSL https://github.com/goodwithtech/dockle/releases/download/v0.4.15/dockle_0.4.15_Linux-64bit.tar.gz | tar -xz -C /usr/local/bin dockle
+RUN mkdir -p /root/.ssh && ssh-keyscan github.com >> /root/.ssh/known_hosts
+RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 USER jenkins

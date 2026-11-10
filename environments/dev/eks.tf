@@ -6,6 +6,11 @@ module "eks" {
   vpc_id             = module.vpc.vpc_id
   private_subnet_ids = module.vpc.private_subnet_ids
 
+  # Kubernetes version and add-on pins. The infra pipeline overrides these
+  # with its K8S_VERSION and ADDON_VERSIONS parameters.
+  cluster_version = var.cluster_version
+  addon_versions  = var.addon_versions
+
   # Dev uses SPOT instances to save ~70% cost
   node_instance_types = ["t3.medium"]
   node_min_size       = 1
@@ -14,7 +19,7 @@ module "eks" {
 }
 
 # ── CLUSTER ACCESS ENTRY ─────────────────────────────────────────────────────
-# Grants devops-admin user kubectl accessr
+# Grants devops-admin user kubectl access
 resource "aws_eks_access_entry" "devops_admin" {
   cluster_name  = module.eks.cluster_name
   principal_arn = "arn:aws:iam::495905914919:user/devops-admin"
@@ -34,10 +39,18 @@ resource "aws_eks_access_policy_association" "devops_admin" {
 }
 
 # ── EBS CSI DRIVER ───────────────────────────────────────────────────────────
+# Newest driver version compatible with the cluster's Kubernetes version,
+# unless addon_versions pins "aws-ebs-csi-driver" to a specific one.
+data "aws_eks_addon_version" "ebs_csi" {
+  addon_name         = "aws-ebs-csi-driver"
+  kubernetes_version = var.cluster_version
+  most_recent        = true
+}
+
 resource "aws_eks_addon" "ebs_csi" {
-  cluster_name             = module.eks.cluster_name
-  addon_name               = "aws-ebs-csi-driver"
-  addon_version            = "v1.38.1-eksbuild.1"
+  cluster_name                = module.eks.cluster_name
+  addon_name                  = "aws-ebs-csi-driver"
+  addon_version               = lookup(var.addon_versions, "aws-ebs-csi-driver", "") != "" ? var.addon_versions["aws-ebs-csi-driver"] : data.aws_eks_addon_version.ebs_csi.version
   resolve_conflicts_on_update = "PRESERVE"
 
   depends_on = [

@@ -7,3 +7,7 @@ availability_zones = ["us-east-1a", "us-east-1b"]
 
 private_subnet_cidrs = ["10.0.1.0/24", "10.0.2.0/24"]
 public_subnet_cidrs  = ["10.0.101.0/24", "10.0.102.0/24"]
+
+# Kubernetes version used when the cluster is first created.
+# After that, upgrade through the infra pipeline's K8S_VERSION parameter.
+cluster_version = "1.34"

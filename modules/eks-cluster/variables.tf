@@ -2,6 +2,16 @@ variable "cluster_name" {
   type        = string
   description = "EKS cluster name"
 }
+variable "cluster_version" {
+  type        = string
+  description = "Kubernetes version for the control plane and node group, for example 1.34"
+  default     = "1.34"
+}
+variable "addon_versions" {
+  type        = map(string)
+  description = "Optional add-on version pins keyed by add-on name. Add-ons not listed use the newest version compatible with cluster_version."
+  default     = {}
+}
 variable "environment" {
   type        = string
   description = "Environment name (dev or prod)"

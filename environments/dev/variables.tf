@@ -34,3 +34,15 @@ variable "environment" {
   description = "Environment name"
   default     = "dev"
 }
+
+variable "cluster_version" {
+  type        = string
+  description = "Kubernetes version for the EKS cluster. The infra pipeline overrides this with K8S_VERSION, or with the running version when K8S_VERSION is blank."
+  default     = "1.34"
+}
+
+variable "addon_versions" {
+  type        = map(string)
+  description = "Optional add-on version pins keyed by add-on name. Blank means newest compatible version."
+  default     = {}
+}

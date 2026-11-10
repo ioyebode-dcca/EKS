@@ -12,7 +12,7 @@ pipeline {
         skipStagesAfterUnstable()
         timestamps()
         buildDiscarder(logRotator(numToKeepStr: '10'))
-        timeout(time: 60, unit: 'MINUTES')
+        timeout(time: 90, unit: 'MINUTES')
     }
 
     parameters {
@@ -25,6 +25,16 @@ pipeline {
             name: 'ENVIRONMENT',
             choices: ['dev', 'prod'],
             description: 'Target environment'
+        )
+        string(
+            name: 'K8S_VERSION',
+            defaultValue: '',
+            description: 'Kubernetes version to move to, for example 1.35. Leave blank to keep the running version (or the terraform.tfvars version for a new cluster). EKS upgrades one minor version at a time.'
+        )
+        string(
+            name: 'ADDON_VERSIONS',
+            defaultValue: '',
+            description: 'Optional add-on pins as name=version,name=version. Example: coredns=v1.12.1-eksbuild.2. Leave blank to use the newest version compatible with the cluster. Names: vpc-cni, coredns, kube-proxy, eks-pod-identity-agent, aws-ebs-csi-driver.'
         )
     }
 
@@ -53,34 +63,118 @@ pipeline {
                     echo "=== Checking tools ==="
                     terraform version
                     aws --version
+                    kubectl version --client
                     aws sts get-caller-identity
                 '''
             }
         }
 
+        // Works out which Kubernetes version and add-on pins Terraform should
+        // use, and blocks unsafe requests before any plan is made.
+        stage('Resolve Versions') {
+            steps {
+                sh '''
+                    set -e
+
+                    CURRENT=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region "$AWS_REGION" --query 'cluster.version' --output text 2>/dev/null || true)
+                    REQUESTED=$(echo "${K8S_VERSION:-}" | tr -d ' ')
+
+                    if [ -n "$REQUESTED" ] && ! echo "$REQUESTED" | grep -Eq '^1\\.[0-9]{2}$'; then
+                        echo "ERROR: K8S_VERSION must look like 1.35. Got: $REQUESTED"
+                        exit 1
+                    fi
+
+                    # Blank request means stay on the running version, so a
+                    # routine Plan or Apply can never downgrade the cluster.
+                    TARGET="${REQUESTED:-$CURRENT}"
+
+                    echo "=== Version summary ==="
+                    echo "Cluster:          $CLUSTER_NAME"
+                    echo "Running version:  ${CURRENT:-none (cluster does not exist)}"
+                    echo "Requested:        ${REQUESTED:-none}"
+                    echo "Terraform target: ${TARGET:-from terraform.tfvars}"
+
+                    if [ -n "$CURRENT" ] && [ -n "$TARGET" ]; then
+                        CUR_MINOR=${CURRENT#1.}
+                        TGT_MINOR=${TARGET#1.}
+                        DIFF=$((TGT_MINOR - CUR_MINOR))
+                        if [ "$DIFF" -lt 0 ]; then
+                            echo "ERROR: EKS cannot downgrade from $CURRENT to $TARGET."
+                            exit 1
+                        fi
+                        if [ "$DIFF" -gt 1 ]; then
+                            echo "ERROR: EKS upgrades one minor version at a time. From $CURRENT the next step is 1.$((CUR_MINOR + 1))."
+                            exit 1
+                        fi
+                        if [ "$DIFF" -eq 1 ]; then
+                            echo "This run will UPGRADE the control plane from $CURRENT to $TARGET."
+                        fi
+                    fi
+
+                    if [ -n "$TARGET" ]; then
+                        echo "=== Newest add-on versions for Kubernetes $TARGET ==="
+                        for ADDON in vpc-cni coredns kube-proxy eks-pod-identity-agent aws-ebs-csi-driver; do
+                            LATEST=$(aws eks describe-addon-versions --kubernetes-version "$TARGET" --addon-name "$ADDON" --region "$AWS_REGION" --query 'addons[0].addonVersions[0].addonVersion' --output text 2>/dev/null || echo "unknown")
+                            echo "$ADDON: $LATEST"
+                            if [ "$ADDON" = "vpc-cni" ] && { [ "$LATEST" = "None" ] || [ "$LATEST" = "unknown" ]; }; then
+                                echo "ERROR: EKS does not offer Kubernetes $TARGET in $AWS_REGION."
+                                exit 1
+                            fi
+                        done
+                    fi
+
+                    ARGS=""
+                    if [ -n "$TARGET" ]; then
+                        ARGS="-var=cluster_version=$TARGET"
+                    fi
+
+                    PINS=$(echo "${ADDON_VERSIONS:-}" | tr -d ' ')
+                    if [ -n "$PINS" ]; then
+                        if ! echo "$PINS" | grep -Eq '^[a-z0-9-]+=[A-Za-z0-9.-]+(,[a-z0-9-]+=[A-Za-z0-9.-]+)*$'; then
+                            echo "ERROR: ADDON_VERSIONS must look like name=version,name=version. Got: $PINS"
+                            exit 1
+                        fi
+                        MAP=$(echo "$PINS" | sed -E 's/([^=,]+)=([^,]+)/"\\1"="\\2"/g')
+                        ARGS="$ARGS -var=addon_versions={$MAP}"
+                        echo "Add-on pins: $PINS"
+                    else
+                        echo "Add-on pins: none (newest compatible versions)"
+                    fi
+
+                    echo "$ARGS" > "$WORKSPACE/tf-version-args.txt"
+                    echo "$TARGET" > "$WORKSPACE/target-k8s.txt"
+                '''
+                script {
+                    env.TF_VERSION_ARGS = readFile('tf-version-args.txt').trim()
+                    env.TARGET_K8S = readFile('target-k8s.txt').trim()
+                }
+            }
+        }
+
         stage('Terraform Init') {
             steps {
-                sh """
-                    cd ${TF_DIR}
+                sh '''
+                    cd "$TF_DIR"
                     terraform init -reconfigure
                     terraform validate
-                """
+                '''
             }
         }
 
         stage('Terraform Plan') {
             steps {
                 withCredentials([string(credentialsId: 'alert-phone-number', variable: 'PHONE_NUMBER')]) {
-                    sh """
-                        cd ${TF_DIR}
+                    sh '''
+                        cd "$TF_DIR"
                         terraform plan \
                           -input=false \
-                          -var="alert_phone_number=${PHONE_NUMBER}" \
+                          $TF_VERSION_ARGS \
+                          -var="alert_phone_number=$PHONE_NUMBER" \
                           -out=tfplan
                         terraform show -no-color tfplan > tfplan.txt
                         echo "=== Plan Summary ==="
                         tail -5 tfplan.txt
-                    """
+                    '''
                     archiveArtifacts artifacts: "${TF_DIR}/tfplan.txt"
                 }
             }
@@ -103,28 +197,51 @@ pipeline {
         stage('Terraform Apply') {
             when { expression { params.ACTION == 'Apply' } }
             steps {
-                withCredentials([string(credentialsId: 'alert-phone-number', variable: 'PHONE_NUMBER')]) {
-                    sh """
-                        cd ${TF_DIR}
-                        terraform apply \
-                          -input=false \
-                          tfplan
-                    """
-                }
+                sh '''
+                    cd "$TF_DIR"
+                    terraform apply \
+                      -input=false \
+                      tfplan
+                '''
             }
         }
 
-        stage('Update kubeconfig') {
+        // Confirms the cluster landed on the expected version, nodes are
+        // Ready, and every add-on is healthy.
+        stage('Validate Cluster') {
             when { expression { params.ACTION == 'Apply' } }
             steps {
-                sh """
-                    aws eks update-kubeconfig \
-                      --region ${AWS_REGION} \
-                      --name ${CLUSTER_NAME}
+                sh '''
+                    set -e
 
-                    echo "=== Cluster Nodes ==="
-                    kubectl get nodes
-                """
+                    aws eks update-kubeconfig --region "$AWS_REGION" --name "$CLUSTER_NAME"
+
+                    ACTUAL=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region "$AWS_REGION" --query 'cluster.version' --output text)
+                    echo "=== Control plane version: $ACTUAL ==="
+                    if [ -n "$TARGET_K8S" ] && [ "$ACTUAL" != "$TARGET_K8S" ]; then
+                        echo "ERROR: expected Kubernetes $TARGET_K8S but the cluster reports $ACTUAL."
+                        exit 1
+                    fi
+
+                    echo "=== Waiting for nodes to be Ready ==="
+                    kubectl wait --for=condition=Ready nodes --all --timeout=600s
+                    kubectl get nodes -o wide
+
+                    echo "=== Add-ons ==="
+                    FAILED=0
+                    for ADDON in $(aws eks list-addons --cluster-name "$CLUSTER_NAME" --region "$AWS_REGION" --query 'addons[]' --output text); do
+                        INFO=$(aws eks describe-addon --cluster-name "$CLUSTER_NAME" --addon-name "$ADDON" --region "$AWS_REGION" --query 'addon.[addonName,addonVersion,status]' --output text)
+                        echo "$INFO"
+                        case "$INFO" in
+                            *ACTIVE) ;;
+                            *) FAILED=1 ;;
+                        esac
+                    done
+                    if [ "$FAILED" -ne 0 ]; then
+                        echo "ERROR: one or more add-ons are not ACTIVE."
+                        exit 1
+                    fi
+                '''
             }
         }
 
@@ -140,7 +257,7 @@ pipeline {
                       --output text 2>/dev/null || echo "NOT_FOUND")
 
                     if [ "\$CLUSTER_EXISTS" = "NOT_FOUND" ]; then
-                        echo "Cluster ${CLUSTER_NAME} not found — skipping Kubernetes cleanup"
+                        echo "Cluster ${CLUSTER_NAME} not found. Skipping Kubernetes cleanup."
                         exit 0
                     fi
 
@@ -173,13 +290,14 @@ pipeline {
             when { expression { params.ACTION == 'Destroy' } }
             steps {
                 withCredentials([string(credentialsId: 'alert-phone-number', variable: 'PHONE_NUMBER')]) {
-                    sh """
-                        cd ${TF_DIR}
+                    sh '''
+                        cd "$TF_DIR"
                         terraform init -reconfigure
                         terraform destroy \
                           -auto-approve \
-                          -var="alert_phone_number=${PHONE_NUMBER}"
-                    """
+                          $TF_VERSION_ARGS \
+                          -var="alert_phone_number=$PHONE_NUMBER"
+                    '''
                 }
             }
         }
